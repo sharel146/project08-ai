@@ -4,7 +4,6 @@ from google.genai import types
 import requests
 
 # --- הגדרות ---
-# טעינת מפתחות (כולל הגנה למקרה שאין)
 try:
     GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
     SHOPIFY_API_KEY = st.secrets["SHOPIFY_API_KEY"]
@@ -13,7 +12,7 @@ except:
     st.error("Secrets not found. Please check Streamlit settings.")
     st.stop()
 
-# --- הגדרת עמוד ועיצוב ---
+# --- הגדרת עמוד ---
 st.set_page_config(page_title="Project 08", page_icon="💎", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
@@ -23,7 +22,7 @@ st.markdown("""
     html, body, [class*="css"] { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background-color: #000; color: #fff; }
     .stApp { background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); background-size: 400% 400%; animation: gradientBG 15s ease infinite; }
     
-    /* עיצוב כרטיסיות מוצר בצד (Sidebar Cards) */
+    /* כרטיסיות צד */
     .product-card { 
         background: rgba(255,255,255,0.05); 
         border: 1px solid rgba(255,255,255,0.1); 
@@ -40,16 +39,21 @@ st.markdown("""
         background: rgba(255,255,255,0.15); 
         box-shadow: 0 5px 15px rgba(0,210,255,0.3); 
     }
+    .product-img {
+        width: 100%;
+        border-radius: 10px;
+        margin-bottom: 10px;
+        object-fit: cover;
+    }
     .card-title { font-weight: 600; font-size: 15px; color: #fff; margin-bottom: 4px; }
     .card-price { color: #00d2ff; font-size: 14px; font-weight: bold; }
     .card-qty { float: right; color: #aaa; font-size: 12px; }
     
-    /* עיצוב בועות צ'אט */
+    /* צ'אט */
     div[data-testid="stChatMessage"] { background: transparent; border: none; padding: 0; }
     div[data-testid="stChatMessage"]:nth-child(odd) div[data-testid="stMarkdownContainer"] { background: rgba(255,255,255,0.05); border-radius: 20px 20px 20px 5px; padding: 12px 18px; color: #eee; border: 1px solid rgba(255,255,255,0.05); }
     div[data-testid="stChatMessage"]:nth-child(even) div[data-testid="stMarkdownContainer"] { background: linear-gradient(135deg, #00d2ff, #3a7bd5); border-radius: 20px 20px 5px 20px; padding: 12px 18px; color: #fff; text-align: right; box-shadow: 0 4px 15px rgba(0,210,255,0.2); }
     
-    /* תמונות וקלט */
     .stMarkdown img { border-radius: 12px; margin-top: 10px; max-width: 250px; border: 1px solid rgba(255,255,255,0.1); }
     .stTextInput input { background: rgba(0,0,0,0.3) !important; border: 1px solid rgba(255,255,255,0.2) !important; color: white !important; border-radius: 25px; padding: 10px 15px; }
     #MainMenu, footer, header {visibility: hidden;}
@@ -84,51 +88,46 @@ def get_inventory():
         return []
 
 def get_system_instruction(inventory):
-    inv_text = "\n".join([f"- {p['title']} (Price: {p['price']}, Link: {p['link']}, Image: {p['img']})" for p in inventory])
+    inv_text = "\n".join([f"- {p['title']} (Price: ${p['price']}, Link: {p['link']}, Image: {p['img']})" for p in inventory])
     return f"""
     You are the AI assistant for 'Project 08'.
     PROTOCOL:
     1. Language: English default. Hebrew ONLY if user writes in Hebrew.
-    2. Style: Short, cool, sales-oriented.
-    3. Images: You MUST display images like this: [![Product](ImageURL)](ProductLink)
-    4. INVENTORY DATA:
+    2. Currency: All prices are in USD ($).
+    3. Style: Short, cool, sales-oriented.
+    4. Images: You MUST display images like this: [![Product](ImageURL)](ProductLink)
+    5. INVENTORY DATA:
     {inv_text}
     """
 
-# --- אתחול הלקוח (עם המודל שעובד) ---
+# --- אתחול ---
 client = genai.Client(api_key=GOOGLE_API_KEY)
-# משתמשים במודל הנסיוני שעבד בבדיקה שלך
-WORKING_MODEL = "gemini-2.0-flash-exp" 
+WORKING_MODEL = "gemini-2.0-flash-exp"
 
 # --- ממשק ---
 
-# ==== החלק שהוספתי: סרגל צד עם מוצרים ====
 with st.sidebar:
     st.markdown("### 💎 Collection")
-    
-    # טעינת מוצרים
     products = get_inventory()
-    
     if products:
         for p in products:
-            # כרטיסיית מוצר לחיצה
+            # הוספתי כאן את ה-img src
             st.markdown(f"""
             <a href="{p['link']}" target="_blank" style="text-decoration:none;">
                 <div class="product-card">
+                    <img src="{p['img']}" class="product-img">
                     <div class="card-title">{p['title']}</div>
-                    <div class="card-price">₪{p['price']} 
+                    <div class="card-price">${p['price']} 
                         <span class="card-qty">● Stock: {p['qty']}</span>
                     </div>
                 </div>
             </a>
             """, unsafe_allow_html=True)
     else:
-        st.info("Loading store items...")
-# =========================================
+        st.info("Loading items...")
 
 st.markdown("<h1 style='text-align: center; text-shadow: 0 0 20px rgba(0,210,255,0.6);'>PROJECT 08</h1>", unsafe_allow_html=True)
 
-# אתחול צ'אט
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "Welcome to Project 08. / ברוכים הבאים"}]
 
@@ -136,17 +135,14 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"], unsafe_allow_html=True)
 
-# קלט משתמש
 if prompt := st.chat_input("Type here..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     try:
-        # הכנת ההיסטוריה
         history = [{"role": "user" if m["role"]=="user" else "model", "parts": [{"text": str(m["content"])}]} for m in st.session_state.messages[:-1]]
         
-        # שליחה למודל
         chat = client.chats.create(
             model=WORKING_MODEL,
             history=history,
