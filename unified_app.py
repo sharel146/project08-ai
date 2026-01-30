@@ -542,12 +542,16 @@ class PromptEnhancer:
         try:
             response = self.client.messages.create(
                 model="claude-sonnet-4-20250514",
-                max_tokens=100,
-                messages=[{"role": "user", "content": f'Improve this 3D {type_hint} prompt to be more detailed: "{prompt}". Respond with ONLY the improved prompt.'}]
+                max_tokens=60,  # Shorter = better for Meshy
+                messages=[{"role": "user", "content": f'Improve this 3D {type_hint} prompt to be clear and specific but UNDER 50 words: "{prompt}". Respond with ONLY the improved prompt.'}]
             )
-            return response.content[0].text.strip().strip('"').strip("'")
+            enhanced = response.content[0].text.strip().strip('"').strip("'")
+            # Limit length to avoid confusing AI
+            if len(enhanced) > 200:
+                enhanced = enhanced[:200] + "..."
+            return enhanced
         except:
-            return f"{prompt} detailed 3D printable"
+            return f"{prompt} detailed 3D printable model"
 
 
 # ============================================================================
