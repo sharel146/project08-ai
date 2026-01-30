@@ -663,7 +663,9 @@ Respond ONLY as JSON: {{"complexity": "...", "detail": "...", "style": "..."}}""
                         return {"success": False, "message": "❌ No model file", "stl_data": None}
                         
                 elif status == "FAILED":
-                    return {"success": False, "message": "❌ Generation failed", "stl_data": None}
+                    error_msg = status_data.get("error") or status_data.get("task_error") or "Unknown error"
+                    # Show full error details for debugging
+                    return {"success": False, "message": f"❌ Meshy failed: {error_msg}", "stl_data": None}
                 
                 progress = status_data.get("progress", 0)
                 progress_bar.progress(min(progress, 99))
