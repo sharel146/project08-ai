@@ -20,29 +20,63 @@ from enum import Enum
 # ============================================================================
 
 def parse_openscad_to_threejs(scad_code: str) -> List[Dict[str, Any]]:
-    """Parse OpenSCAD code and extract basic primitives for Three.js rendering"""
+    """Parse OpenSCAD code and extract primitives WITH their transformations"""
     objects = []
     
     # Remove comments
     code = re.sub(r'//.*', '', scad_code)
     code = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
     
-    # Find cubes
-    cube_pattern = r'cube\s*\(\s*\[([^]]+)\]'
-    for match in re.finditer(cube_pattern, code):
+    # Find translated cubes
+    translated_cube_pattern = r'translate\s*\(\s*\[([^\]]+)\]\s*\)\s*cube\s*\(\s*\[([^\]]+)\]'
+    for match in re.finditer(translated_cube_pattern, code):
         try:
-            params = [float(x.strip()) for x in match.group(1).split(',')]
+            pos = [float(x.strip()) for x in match.group(1).split(',')]
+            size = [float(x.strip()) for x in match.group(2).split(',')]
             objects.append({
                 'type': 'cube',
-                'size': params,
-                'position': [0, 0, 0]
+                'size': size,
+                'position': pos
             })
         except:
             pass
     
-    # Find cylinders with r1/r2 (cones/funnels)
-    cylinder_cone_pattern = r'cylinder\s*\([^)]*h\s*=\s*([\d.]+)[^)]*r1\s*=\s*([\d.]+)[^)]*r2\s*=\s*([\d.]+)'
-    for match in re.finditer(cylinder_cone_pattern, code):
+    # Find non-translated cubes
+    standalone_cube_pattern = r'(?<!translate\s{0,50})cube\s*\(\s*\[([^\]]+)\]'
+    for match in re.finditer(standalone_cube_pattern, code):
+        try:
+            # Check if already captured as translated
+            if not any(obj['type'] == 'cube' for obj in objects):
+                size = [float(x.strip()) for x in match.group(1).split(',')]
+                objects.append({
+                    'type': 'cube',
+                    'size': size,
+                    'position': [0, 0, 0]
+                })
+        except:
+            pass
+    
+    # Find translated cones/cylinders with r1/r2
+    translated_cone_pattern = r'translate\s*\(\s*\[([^\]]+)\]\s*\)\s*cylinder\s*\([^)]*h\s*=\s*([\d.]+)[^)]*r1\s*=\s*([\d.]+)[^)]*r2\s*=\s*([\d.]+)'
+    for match in re.finditer(translated_cone_pattern, code):
+        try:
+            pos = [float(x.strip()) for x in match.group(1).split(',')]
+            h = float(match.group(2))
+            r1 = float(match.group(3))
+            r2 = float(match.group(4))
+            objects.append({
+                'type': 'cone',
+                'height': h,
+                'radiusTop': r1,
+                'radiusBottom': r2,
+                'position': pos
+            })
+        except:
+            pass
+    
+    # Find non-translated cones with r1/r2
+    standalone_cone_pattern = r'(?<!translate\s{0,50})cylinder\s*\([^)]*h\s*=\s*([\d.]+)[^)]*r1\s*=\s*([\d.]+)[^)]*r2\s*=\s*([\d.]+)'
+    for match in re.finditer(standalone_cone_pattern, code):
         try:
             h = float(match.group(1))
             r1 = float(match.group(2))
@@ -57,14 +91,30 @@ def parse_openscad_to_threejs(scad_code: str) -> List[Dict[str, Any]]:
         except:
             pass
     
-    # Find regular cylinders (with single radius)
-    cylinder_pattern = r'cylinder\s*\(\s*h\s*=\s*([\d.]+).*?r\s*=\s*([\d.]+)'
-    for match in re.finditer(cylinder_pattern, code):
+    # Find translated regular cylinders
+    translated_cylinder_pattern = r'translate\s*\(\s*\[([^\]]+)\]\s*\)\s*cylinder\s*\([^)]*h\s*=\s*([\d.]+)[^)]*(?:r\s*=\s*([\d.]+)|r1\s*=\s*([\d.]+))'
+    for match in re.finditer(translated_cylinder_pattern, code):
         try:
-            # Skip if already matched as cone
-            if not any(obj['type'] == 'cone' for obj in objects):
-                h = float(match.group(1))
-                r = float(match.group(2))
+            pos = [float(x.strip()) for x in match.group(1).split(',')]
+            h = float(match.group(2))
+            r = float(match.group(3) or match.group(4))
+            objects.append({
+                'type': 'cylinder',
+                'height': h,
+                'radius': r,
+                'position': pos
+            })
+        except:
+            pass
+    
+    # Find non-translated regular cylinders
+    standalone_cylinder_pattern = r'(?<!translate\s{0,50})cylinder\s*\(\s*h\s*=\s*([\d.]+).*?r\s*=\s*([\d.]+)'
+    for match in re.finditer(standalone_cylinder_pattern, code):
+        try:
+            h = float(match.group(1))
+            r = float(match.group(2))
+            # Only add if not already matched
+            if not any(obj['type'] in ['cylinder', 'cone'] for obj in objects):
                 objects.append({
                     'type': 'cylinder',
                     'height': h,
@@ -158,7 +208,12 @@ def generate_threejs_html(scad_code: str, height: int = 500) -> str:
                 mesh = new THREE.Mesh(geometry, material);
                 const edges = new THREE.EdgesGeometry(geometry);
                 mesh.add(new THREE.LineSegments(edges, edgeMaterial));
-                mesh.position.set(obj.size[0]/2, obj.size[2]/2, obj.size[1]/2);
+                // Use actual position + half dimensions for centering
+                mesh.position.set(
+                    obj.position[0] + obj.size[0]/2, 
+                    obj.position[2] + obj.size[2]/2, 
+                    obj.position[1] + obj.size[1]/2
+                );
                 
             }} else if (obj.type === 'cone') {{
                 const geometry = new THREE.CylinderGeometry(
@@ -170,20 +225,32 @@ def generate_threejs_html(scad_code: str, height: int = 500) -> str:
                 mesh = new THREE.Mesh(geometry, material);
                 const edges = new THREE.EdgesGeometry(geometry);
                 mesh.add(new THREE.LineSegments(edges, edgeMaterial));
-                mesh.position.set(0, obj.height/2, 0);
+                // Use actual position + half height
+                mesh.position.set(
+                    obj.position[0], 
+                    obj.position[2] + obj.height/2, 
+                    obj.position[1]
+                );
                 
             }} else if (obj.type === 'cylinder') {{
                 const geometry = new THREE.CylinderGeometry(obj.radius, obj.radius, obj.height, 32);
                 mesh = new THREE.Mesh(geometry, material);
                 const edges = new THREE.EdgesGeometry(geometry);
                 mesh.add(new THREE.LineSegments(edges, edgeMaterial));
-                mesh.position.set(0, obj.height/2, 0);
+                // Use actual position + half height
+                mesh.position.set(
+                    obj.position[0], 
+                    obj.position[2] + obj.height/2, 
+                    obj.position[1]
+                );
                 
             }} else if (obj.type === 'sphere') {{
                 const geometry = new THREE.SphereGeometry(obj.radius, 32, 32);
                 mesh = new THREE.Mesh(geometry, material);
                 const edges = new THREE.EdgesGeometry(geometry);
                 mesh.add(new THREE.LineSegments(edges, edgeMaterial));
+                // Use actual position
+                mesh.position.set(obj.position[0], obj.position[2], obj.position[1]);
             }}
             
             if (mesh) modelGroup.add(mesh);
