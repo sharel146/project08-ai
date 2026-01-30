@@ -623,16 +623,21 @@ Respond ONLY as JSON: {{"complexity": "...", "detail": "...", "style": "..."}}""
                 timeout=10
             )
             
-            if response.status_code != 200:
+            # 200 OK or 202 Accepted are both success
+            if response.status_code not in [200, 202]:
                 return {"success": False, "message": f"❌ API error: {response.status_code}", "stl_data": None}
             
-            task_id = response.json().get("result")
+            response_data = response.json()
+            task_id = response_data.get("result") or response_data.get("id")
+            
+            if not task_id:
+                return {"success": False, "message": "❌ No task ID", "stl_data": None}
             
             # Poll for completion
             progress_bar = st.progress(0)
             for i in range(40):  # 2 minutes max
                 status_response = requests.get(
-                    f"https://api.meshy.ai/v1/text-to-3d/{task_id}",
+                    f"https://api.meshy.ai/v2/text-to-3d/{task_id}",
                     headers={"Authorization": f"Bearer {self.meshy_key}"}
                 )
                 
@@ -641,13 +646,21 @@ Respond ONLY as JSON: {{"complexity": "...", "detail": "...", "style": "..."}}""
                 
                 if status == "SUCCEEDED":
                     progress_bar.progress(100)
-                    stl_url = status_data.get("model_urls", {}).get("stl")
-                    stl_data = requests.get(stl_url).content
+                    # Get GLB file (v2 uses GLB not STL)
+                    model_urls = status_data.get("model_urls", {})
+                    glb_url = model_urls.get("glb")
                     
-                    return {
-                        "success": True,
-                        "message": "✓ Generated with Meshy.ai ($0.25)",
-                        "stl_data": stl_data,
+                    if glb_url:
+                        model_data = requests.get(glb_url).content
+                        return {
+                            "success": True,
+                            "message": "✓ Generated successfully",
+                            "stl_data": model_data,
+                            "provider": "Meshy.ai",
+                            "file_format": "glb"
+                        }
+                    else:
+                        return {"success": False, "message": "❌ No model file", "stl_data": None}
                         "provider": "Meshy.ai"
                     }
                 elif status == "FAILED":
