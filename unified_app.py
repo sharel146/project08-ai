@@ -40,18 +40,37 @@ def parse_openscad_to_threejs(scad_code: str) -> List[Dict[str, Any]]:
         except:
             pass
     
-    # Find cylinders
+    # Find cylinders with r1/r2 (cones/funnels)
+    cylinder_cone_pattern = r'cylinder\s*\([^)]*h\s*=\s*([\d.]+)[^)]*r1\s*=\s*([\d.]+)[^)]*r2\s*=\s*([\d.]+)'
+    for match in re.finditer(cylinder_cone_pattern, code):
+        try:
+            h = float(match.group(1))
+            r1 = float(match.group(2))
+            r2 = float(match.group(3))
+            objects.append({
+                'type': 'cone',
+                'height': h,
+                'radiusTop': r1,
+                'radiusBottom': r2,
+                'position': [0, 0, 0]
+            })
+        except:
+            pass
+    
+    # Find regular cylinders (with single radius)
     cylinder_pattern = r'cylinder\s*\(\s*h\s*=\s*([\d.]+).*?r\s*=\s*([\d.]+)'
     for match in re.finditer(cylinder_pattern, code):
         try:
-            h = float(match.group(1))
-            r = float(match.group(2))
-            objects.append({
-                'type': 'cylinder',
-                'height': h,
-                'radius': r,
-                'position': [0, 0, 0]
-            })
+            # Skip if already matched as cone
+            if not any(obj['type'] == 'cone' for obj in objects):
+                h = float(match.group(1))
+                r = float(match.group(2))
+                objects.append({
+                    'type': 'cylinder',
+                    'height': h,
+                    'radius': r,
+                    'position': [0, 0, 0]
+                })
         except:
             pass
     
@@ -140,6 +159,18 @@ def generate_threejs_html(scad_code: str, height: int = 500) -> str:
                 const edges = new THREE.EdgesGeometry(geometry);
                 mesh.add(new THREE.LineSegments(edges, edgeMaterial));
                 mesh.position.set(obj.size[0]/2, obj.size[2]/2, obj.size[1]/2);
+                
+            }} else if (obj.type === 'cone') {{
+                const geometry = new THREE.CylinderGeometry(
+                    obj.radiusTop, 
+                    obj.radiusBottom, 
+                    obj.height, 
+                    32
+                );
+                mesh = new THREE.Mesh(geometry, material);
+                const edges = new THREE.EdgesGeometry(geometry);
+                mesh.add(new THREE.LineSegments(edges, edgeMaterial));
+                mesh.position.set(0, obj.height/2, 0);
                 
             }} else if (obj.type === 'cylinder') {{
                 const geometry = new THREE.CylinderGeometry(obj.radius, obj.radius, obj.height, 32);
@@ -458,20 +489,32 @@ class FallbackPatterns:
     @staticmethod
     def funnel(top_diameter: float = 100, bottom_diameter: float = 20, 
                height: float = 80, wall_thickness: float = 2) -> str:
-        return f"""// Parametric Funnel
+        return f"""// Parametric Funnel WITH HOLE
 top_d = {top_diameter};
 bottom_d = {bottom_diameter};
 height = {height};
 wall = {wall_thickness};
 
 difference() {{
+    // Outer cone
     cylinder(h=height, r1=top_d/2, r2=bottom_d/2, $fn=100);
+    
+    // Inner cone (hollow)
     translate([0, 0, wall])
         cylinder(h=height, r1=(top_d/2)-wall, r2=(bottom_d/2)-wall, $fn=100);
+    
+    // Bottom opening (ensures liquid can flow through!)
+    translate([0, 0, -1])
+        cylinder(h=wall+2, r=(bottom_d/2)-wall, $fn=50);
 }}
 
-translate([0, 0, -10])
-    cylinder(h=10, r=bottom_d/2, $fn=50);
+// Spout extension (hollow tube)
+difference() {{
+    translate([0, 0, -10])
+        cylinder(h=10, r=bottom_d/2, $fn=50);
+    translate([0, 0, -11])
+        cylinder(h=12, r=(bottom_d/2)-wall, $fn=50);
+}}
 """
     
     @staticmethod
