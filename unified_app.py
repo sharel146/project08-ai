@@ -12,11 +12,213 @@ import subprocess
 import re
 import os
 from anthropic import Anthropic
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from enum import Enum
 
-# Import 3D preview generator
-from openscad_to_threejs import generate_threejs_html
+# ============================================================================
+# 3D PREVIEW GENERATOR (Built-in)
+# ============================================================================
+
+def parse_openscad_to_threejs(scad_code: str) -> List[Dict[str, Any]]:
+    """Parse OpenSCAD code and extract basic primitives for Three.js rendering"""
+    objects = []
+    
+    # Remove comments
+    code = re.sub(r'//.*', '', scad_code)
+    code = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
+    
+    # Find cubes
+    cube_pattern = r'cube\s*\(\s*\[([^]]+)\]'
+    for match in re.finditer(cube_pattern, code):
+        try:
+            params = [float(x.strip()) for x in match.group(1).split(',')]
+            objects.append({
+                'type': 'cube',
+                'size': params,
+                'position': [0, 0, 0]
+            })
+        except:
+            pass
+    
+    # Find cylinders
+    cylinder_pattern = r'cylinder\s*\(\s*h\s*=\s*([\d.]+).*?r\s*=\s*([\d.]+)'
+    for match in re.finditer(cylinder_pattern, code):
+        try:
+            h = float(match.group(1))
+            r = float(match.group(2))
+            objects.append({
+                'type': 'cylinder',
+                'height': h,
+                'radius': r,
+                'position': [0, 0, 0]
+            })
+        except:
+            pass
+    
+    # Find spheres
+    sphere_pattern = r'sphere\s*\(\s*r\s*=\s*([\d.]+)'
+    for match in re.finditer(sphere_pattern, code):
+        try:
+            r = float(match.group(1))
+            objects.append({
+                'type': 'sphere',
+                'radius': r,
+                'position': [0, 0, 0]
+            })
+        except:
+            pass
+    
+    # Default fallback if no objects found
+    return objects if objects else [{'type': 'cube', 'size': [50, 50, 50], 'position': [0, 0, 0]}]
+
+
+def generate_threejs_html(scad_code: str, height: int = 500) -> str:
+    """Generate HTML with Three.js viewer for OpenSCAD code"""
+    
+    objects = parse_openscad_to_threejs(scad_code)
+    
+    return f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ margin: 0; overflow: hidden; background: linear-gradient(135deg, #1a1a2e, #16213e); }}
+        #viewer {{ width: 100%; height: {height}px; }}
+        .controls {{
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 20px;
+            color: white; font-size: 12px; backdrop-filter: blur(10px);
+        }}
+        .info {{
+            position: absolute; top: 20px; right: 20px;
+            background: rgba(0,210,255,0.2); padding: 10px 15px; border-radius: 8px;
+            color: #00d2ff; font-size: 14px; border: 1px solid rgba(0,210,255,0.3);
+        }}
+    </style>
+</head>
+<body>
+    <div id="viewer"></div>
+    <div class="info">🔷 3D Preview</div>
+    <div class="controls">🖱️ Drag to rotate • Scroll to zoom</div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x16213e);
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / {height}, 0.1, 10000);
+        const renderer = new THREE.WebGLRenderer({{ antialias: true }});
+        renderer.setSize(window.innerWidth, {height});
+        document.getElementById('viewer').appendChild(renderer.domElement);
+        
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight1.position.set(5, 10, 7);
+        scene.add(directionalLight1);
+        const directionalLight2 = new THREE.DirectionalLight(0x00d2ff, 0.3);
+        directionalLight2.position.set(-5, -10, -7);
+        scene.add(directionalLight2);
+        
+        // Materials
+        const material = new THREE.MeshPhongMaterial({{
+            color: 0x00d2ff, specular: 0x111111, shininess: 30
+        }});
+        const edgeMaterial = new THREE.LineBasicMaterial({{ color: 0x0088cc }});
+        
+        // Create model group
+        const modelGroup = new THREE.Group();
+        const objects = {objects};
+        
+        objects.forEach(obj => {{
+            let mesh;
+            
+            if (obj.type === 'cube') {{
+                const geometry = new THREE.BoxGeometry(obj.size[0], obj.size[2], obj.size[1]);
+                mesh = new THREE.Mesh(geometry, material);
+                const edges = new THREE.EdgesGeometry(geometry);
+                mesh.add(new THREE.LineSegments(edges, edgeMaterial));
+                mesh.position.set(obj.size[0]/2, obj.size[2]/2, obj.size[1]/2);
+                
+            }} else if (obj.type === 'cylinder') {{
+                const geometry = new THREE.CylinderGeometry(obj.radius, obj.radius, obj.height, 32);
+                mesh = new THREE.Mesh(geometry, material);
+                const edges = new THREE.EdgesGeometry(geometry);
+                mesh.add(new THREE.LineSegments(edges, edgeMaterial));
+                mesh.position.set(0, obj.height/2, 0);
+                
+            }} else if (obj.type === 'sphere') {{
+                const geometry = new THREE.SphereGeometry(obj.radius, 32, 32);
+                mesh = new THREE.Mesh(geometry, material);
+                const edges = new THREE.EdgesGeometry(geometry);
+                mesh.add(new THREE.LineSegments(edges, edgeMaterial));
+            }}
+            
+            if (mesh) modelGroup.add(mesh);
+        }});
+        
+        scene.add(modelGroup);
+        
+        // Auto-center camera
+        const box = new THREE.Box3().setFromObject(modelGroup);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const fov = camera.fov * (Math.PI / 180);
+        let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 2.5;
+        camera.position.set(cameraZ, cameraZ * 0.7, cameraZ);
+        camera.lookAt(center);
+        
+        // Mouse controls
+        let isDragging = false;
+        let previousMousePosition = {{ x: 0, y: 0 }};
+        
+        renderer.domElement.addEventListener('mousedown', (e) => {{
+            isDragging = true;
+            previousMousePosition = {{ x: e.clientX, y: e.clientY }};
+        }});
+        
+        renderer.domElement.addEventListener('mousemove', (e) => {{
+            if (isDragging) {{
+                modelGroup.rotation.y += (e.clientX - previousMousePosition.x) * 0.01;
+                modelGroup.rotation.x += (e.clientY - previousMousePosition.y) * 0.01;
+                previousMousePosition = {{ x: e.clientX, y: e.clientY }};
+            }}
+        }});
+        
+        renderer.domElement.addEventListener('mouseup', () => {{ isDragging = false; }});
+        
+        // Zoom with wheel
+        renderer.domElement.addEventListener('wheel', (e) => {{
+            e.preventDefault();
+            camera.position.multiplyScalar(e.deltaY > 0 ? 1.1 : 0.9);
+        }});
+        
+        // Auto-rotation
+        let autoRotate = true;
+        renderer.domElement.addEventListener('mouseenter', () => {{ autoRotate = false; }});
+        renderer.domElement.addEventListener('mouseleave', () => {{ autoRotate = true; }});
+        
+        // Animation loop
+        function animate() {{
+            requestAnimationFrame(animate);
+            if (autoRotate) modelGroup.rotation.y += 0.005;
+            renderer.render(scene, camera);
+        }}
+        animate();
+        
+        // Resize handler
+        window.addEventListener('resize', () => {{
+            camera.aspect = window.innerWidth / {height};
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, {height});
+        }});
+    </script>
+</body>
+</html>
+"""
+
 
 # ============================================================================
 # PAGE CONFIGURATION
