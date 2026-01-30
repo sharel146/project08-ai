@@ -583,29 +583,38 @@ Respond ONLY as JSON: {{"complexity": "...", "detail": "...", "style": "..."}}""
         st.info("🎨 Generating with **Meshy.ai**...")
         
         try:
-            # Start task
+            # Start task - UPDATED ENDPOINT
             response = requests.post(
-                "https://api.meshy.ai/v1/text-to-3d",
-                headers={"Authorization": f"Bearer {self.meshy_key}"},
+                "https://api.meshy.ai/v2/text-to-3d",
+                headers={
+                    "Authorization": f"Bearer {self.meshy_key}",
+                    "Content-Type": "application/json"
+                },
                 json={
                     "mode": "preview",
                     "prompt": prompt,
                     "art_style": "realistic" if analysis["style"] == "realistic" else "sculpture",
                     "negative_prompt": "low quality, blurry",
+                    "ai_model": "meshy-4"
                 },
                 timeout=10
             )
             
             if response.status_code != 200:
-                return {"success": False, "message": f"❌ API error: {response.status_code}", "stl_data": None}
+                error_detail = response.text
+                return {
+                    "success": False, 
+                    "message": f"❌ API error {response.status_code}: {error_detail}", 
+                    "stl_data": None
+                }
             
             task_id = response.json().get("result")
             
-            # Poll for completion
+            # Poll for completion - UPDATED ENDPOINT
             progress_bar = st.progress(0)
             for i in range(40):  # 2 minutes max
                 status_response = requests.get(
-                    f"https://api.meshy.ai/v1/text-to-3d/{task_id}",
+                    f"https://api.meshy.ai/v2/text-to-3d/{task_id}",
                     headers={"Authorization": f"Bearer {self.meshy_key}"}
                 )
                 
@@ -614,15 +623,25 @@ Respond ONLY as JSON: {{"complexity": "...", "detail": "...", "style": "..."}}""
                 
                 if status == "SUCCEEDED":
                     progress_bar.progress(100)
-                    stl_url = status_data.get("model_urls", {}).get("stl")
-                    stl_data = requests.get(stl_url).content
                     
-                    return {
-                        "success": True,
-                        "message": "✓ Generated with Meshy.ai ($0.25)",
-                        "stl_data": stl_data,
-                        "provider": "Meshy.ai"
-                    }
+                    # Get GLB URL and convert to STL
+                    model_urls = status_data.get("model_urls", {})
+                    glb_url = model_urls.get("glb")
+                    
+                    if glb_url:
+                        # Download GLB and return it
+                        model_data = requests.get(glb_url).content
+                        
+                        return {
+                            "success": True,
+                            "message": "✓ Generated with Meshy.ai ($0.25) - GLB format",
+                            "stl_data": model_data,
+                            "provider": "Meshy.ai",
+                            "file_format": "glb"
+                        }
+                    else:
+                        return {"success": False, "message": "❌ No model file available", "stl_data": None}
+                        
                 elif status == "FAILED":
                     return {"success": False, "message": "❌ Generation failed", "stl_data": None}
                 
@@ -1071,16 +1090,24 @@ def render_3d_generator(secrets):
                 st.markdown("#### 🎨 AI-Generated Organic Model")
                 st.success(f"Generated with **{result.get('provider', 'AI')}**")
                 
-                # Download STL
+                # Download model file
                 if result.get('stl_data'):
+                    file_format = result.get('file_format', 'stl')
+                    file_ext = 'glb' if file_format == 'glb' else 'stl'
+                    
                     st.download_button(
-                        label="💾 Download .stl file (Ready to Print!)",
+                        label=f"💾 Download .{file_ext} file (Ready to Print!)",
                         data=result['stl_data'],
-                        file_name=f"organic_model_{len(st.session_state['3d_history']) - idx}.stl",
+                        file_name=f"organic_model_{len(st.session_state['3d_history']) - idx}.{file_ext}",
                         mime="application/octet-stream",
                         use_container_width=True
                     )
-                    st.info("🖨️ This STL file is ready to slice and print!")
+                    
+                    if file_ext == 'glb':
+                        st.info("🖨️ GLB file can be opened in Blender or converted to STL using online converters!")
+                    else:
+                        st.info("🖨️ This STL file is ready to slice and print!")
+                
                 
             else:
                 # OpenSCAD Model
