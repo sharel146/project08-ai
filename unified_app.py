@@ -1108,20 +1108,28 @@ def render_3d_generator(secrets):
             is_mesh = result.get('is_mesh', False)
             
             if is_mesh:
-                # AI-Generated Mesh (STL)
+                # AI-Generated Mesh
                 st.markdown("#### 🎨 AI-Generated Organic Model")
                 st.success(f"Generated with **{result.get('provider', 'AI')}**")
                 
-                # Download STL
+                # Download model file (GLB format)
                 if result.get('stl_data'):
+                    file_format = result.get('file_format', 'glb')
+                    file_ext = file_format  # Use actual format
+                    
                     st.download_button(
-                        label="💾 Download .stl file (Ready to Print!)",
+                        label=f"💾 Download .{file_ext} file",
                         data=result['stl_data'],
-                        file_name=f"organic_model_{len(st.session_state['3d_history']) - idx}.stl",
+                        file_name=f"organic_model_{len(st.session_state['3d_history']) - idx}.{file_ext}",
                         mime="application/octet-stream",
                         use_container_width=True
                     )
-                    st.info("🖨️ This STL file is ready to slice and print!")
+                    
+                    if file_ext == 'glb':
+                        st.info("🔄 GLB file - Open in Blender or convert to STL at: https://products.aspose.app/3d/conversion/glb-to-stl")
+                    else:
+                        st.info("🖨️ This file is ready to slice and print!")
+                
                 
             else:
                 # OpenSCAD Model
