@@ -603,20 +603,22 @@ Respond ONLY as JSON: {{"complexity": "...", "detail": "...", "style": "..."}}""
         
         return self._generate_with_meshy(enhanced_prompt)
     
-    def _generate_with_meshy(self, prompt: str, analysis: Dict) -> Dict:
-        """Generate using Meshy.ai"""
-        st.info("🎨 Generating with **Meshy.ai**...")
+    def _generate_with_meshy(self, prompt: str) -> Dict:
+        """Generate using Meshy.ai - simplified"""
         
         try:
-            # Start task
             response = requests.post(
-                "https://api.meshy.ai/v1/text-to-3d",
-                headers={"Authorization": f"Bearer {self.meshy_key}"},
+                "https://api.meshy.ai/v2/text-to-3d",
+                headers={
+                    "Authorization": f"Bearer {self.meshy_key}",
+                    "Content-Type": "application/json"
+                },
                 json={
                     "mode": "preview",
                     "prompt": prompt,
-                    "art_style": "realistic" if analysis["style"] == "realistic" else "sculpture",
-                    "negative_prompt": "low quality, blurry",
+                    "art_style": "realistic",
+                    "negative_prompt": "low quality, blurry, distorted",
+                    "ai_model": "meshy-4"
                 },
                 timeout=10
             )
