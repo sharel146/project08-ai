@@ -618,10 +618,10 @@ Respond ONLY as JSON: {{"complexity": "...", "detail": "...", "style": "..."}}""
                     "Content-Type": "application/json"
                 },
                 json={
-                    "mode": "preview",
+                    "mode": "preview",  # Fast mode - best for simple shapes
                     "prompt": prompt,
-                    "art_style": "realistic",
-                    "negative_prompt": "low quality, blurry, distorted",
+                    "art_style": "sculpture",  # Better for simple shapes than realistic
+                    "negative_prompt": "low quality, blurry, distorted, disconnected parts, complex details",
                     "ai_model": "meshy-4"
                 },
                 timeout=10
