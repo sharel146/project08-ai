@@ -994,7 +994,7 @@ def render_store_assistant(secrets):
     
     # Initialize Gemini
     try:
-        genai.configure(api_key=secrets['google_api_key'])
+        client = genai.Client(api_key=secrets['google_api_key'])
         products = get_inventory(secrets['shopify_api_key'], secrets['shopify_store_url'])
     except Exception as e:
         st.error(f"Error initializing store: {e}")
@@ -1018,25 +1018,30 @@ def render_store_assistant(secrets):
             st.markdown(prompt)
         
         try:
-            model = genai.GenerativeModel(
-                model_name='gemini-1.5-flash',
-                system_instruction=get_store_system_instruction(products)
-            )
-            
-            # Convert chat history to Gemini format
+            # Build history for context
             history = []
             for msg in st.session_state.store_messages[:-1]:
                 role = "user" if msg["role"] == "user" else "model"
                 history.append({"role": role, "parts": [msg["content"]]})
             
-            chat = model.start_chat(history=history)
-            
+            # Use the models.generate_content API
             with st.spinner("Processing..."):
-                response = chat.send_message(prompt)
+                response = client.models.generate_content(
+                    model='gemini-1.5-flash',
+                    contents={
+                        "role": "user",
+                        "parts": [{"text": prompt}]
+                    },
+                    config=types.GenerateContentConfig(
+                        system_instruction=get_store_system_instruction(products),
+                        temperature=0.7
+                    )
+                )
             
-            st.session_state.store_messages.append({"role": "assistant", "content": response.text})
+            assistant_response = response.text
+            st.session_state.store_messages.append({"role": "assistant", "content": assistant_response})
             with st.chat_message("assistant"):
-                st.markdown(response.text, unsafe_allow_html=True)
+                st.markdown(assistant_response, unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Error: {e}")
 
