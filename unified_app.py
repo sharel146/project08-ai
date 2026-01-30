@@ -27,9 +27,9 @@ def parse_openscad_to_threejs(scad_code: str) -> List[Dict[str, Any]]:
     code = re.sub(r'//.*', '', scad_code)
     code = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
     
-    # Find translated cubes
-    translated_cube_pattern = r'translate\s*\(\s*\[([^\]]+)\]\s*\)\s*cube\s*\(\s*\[([^\]]+)\]'
-    for match in re.finditer(translated_cube_pattern, code):
+    # Find all translate + cube combinations
+    translate_cube_pattern = r'translate\s*\(\s*\[([^\]]+)\]\s*\)[^c]*cube\s*\(\s*\[([^\]]+)\]'
+    for match in re.finditer(translate_cube_pattern, code):
         try:
             pos = [float(x.strip()) for x in match.group(1).split(',')]
             size = [float(x.strip()) for x in match.group(2).split(',')]
@@ -41,24 +41,30 @@ def parse_openscad_to_threejs(scad_code: str) -> List[Dict[str, Any]]:
         except:
             pass
     
-    # Find non-translated cubes
-    standalone_cube_pattern = r'(?<!translate\s{0,50})cube\s*\(\s*\[([^\]]+)\]'
-    for match in re.finditer(standalone_cube_pattern, code):
-        try:
-            # Check if already captured as translated
-            if not any(obj['type'] == 'cube' for obj in objects):
-                size = [float(x.strip()) for x in match.group(1).split(',')]
-                objects.append({
-                    'type': 'cube',
-                    'size': size,
-                    'position': [0, 0, 0]
-                })
-        except:
-            pass
+    # Find standalone cubes (not preceded by translate)
+    all_cubes = list(re.finditer(r'cube\s*\(\s*\[([^\]]+)\]', code))
+    translated_cube_positions = set()
+    for match in re.finditer(translate_cube_pattern, code):
+        translated_cube_positions.add(match.end())
     
-    # Find translated cones/cylinders with r1/r2
-    translated_cone_pattern = r'translate\s*\(\s*\[([^\]]+)\]\s*\)\s*cylinder\s*\([^)]*h\s*=\s*([\d.]+)[^)]*r1\s*=\s*([\d.]+)[^)]*r2\s*=\s*([\d.]+)'
-    for match in re.finditer(translated_cone_pattern, code):
+    for match in all_cubes:
+        # Check if this cube was already captured with translate
+        if match.start() not in [m.end() - len(match.group(0)) for m in re.finditer(translate_cube_pattern, code)]:
+            try:
+                size = [float(x.strip()) for x in match.group(1).split(',')]
+                # Check if not already added
+                if not any(obj['type'] == 'cube' and obj['size'] == size for obj in objects):
+                    objects.append({
+                        'type': 'cube',
+                        'size': size,
+                        'position': [0, 0, 0]
+                    })
+            except:
+                pass
+    
+    # Find translate + cylinder with r1/r2 (cones)
+    translate_cone_pattern = r'translate\s*\(\s*\[([^\]]+)\]\s*\)[^c]*cylinder\s*\([^)]*h\s*=\s*([\d.]+)[^)]*r1\s*=\s*([\d.]+)[^)]*r2\s*=\s*([\d.]+)'
+    for match in re.finditer(translate_cone_pattern, code):
         try:
             pos = [float(x.strip()) for x in match.group(1).split(',')]
             h = float(match.group(2))
@@ -74,30 +80,33 @@ def parse_openscad_to_threejs(scad_code: str) -> List[Dict[str, Any]]:
         except:
             pass
     
-    # Find non-translated cones with r1/r2
-    standalone_cone_pattern = r'(?<!translate\s{0,50})cylinder\s*\([^)]*h\s*=\s*([\d.]+)[^)]*r1\s*=\s*([\d.]+)[^)]*r2\s*=\s*([\d.]+)'
-    for match in re.finditer(standalone_cone_pattern, code):
-        try:
-            h = float(match.group(1))
-            r1 = float(match.group(2))
-            r2 = float(match.group(3))
-            objects.append({
-                'type': 'cone',
-                'height': h,
-                'radiusTop': r1,
-                'radiusBottom': r2,
-                'position': [0, 0, 0]
-            })
-        except:
-            pass
+    # Find standalone cones
+    cone_pattern = r'cylinder\s*\([^)]*h\s*=\s*([\d.]+)[^)]*r1\s*=\s*([\d.]+)[^)]*r2\s*=\s*([\d.]+)'
+    for match in re.finditer(cone_pattern, code):
+        # Check if not already captured with translate
+        match_text = code[max(0, match.start()-50):match.start()]
+        if 'translate' not in match_text:
+            try:
+                h = float(match.group(1))
+                r1 = float(match.group(2))
+                r2 = float(match.group(3))
+                objects.append({
+                    'type': 'cone',
+                    'height': h,
+                    'radiusTop': r1,
+                    'radiusBottom': r2,
+                    'position': [0, 0, 0]
+                })
+            except:
+                pass
     
-    # Find translated regular cylinders
-    translated_cylinder_pattern = r'translate\s*\(\s*\[([^\]]+)\]\s*\)\s*cylinder\s*\([^)]*h\s*=\s*([\d.]+)[^)]*(?:r\s*=\s*([\d.]+)|r1\s*=\s*([\d.]+))'
-    for match in re.finditer(translated_cylinder_pattern, code):
+    # Find translate + regular cylinder
+    translate_cylinder_pattern = r'translate\s*\(\s*\[([^\]]+)\]\s*\)[^c]*cylinder\s*\([^)]*h\s*=\s*([\d.]+)[^)]*r\s*=\s*([\d.]+)'
+    for match in re.finditer(translate_cylinder_pattern, code):
         try:
             pos = [float(x.strip()) for x in match.group(1).split(',')]
             h = float(match.group(2))
-            r = float(match.group(3) or match.group(4))
+            r = float(match.group(3))
             objects.append({
                 'type': 'cylinder',
                 'height': h,
@@ -107,22 +116,23 @@ def parse_openscad_to_threejs(scad_code: str) -> List[Dict[str, Any]]:
         except:
             pass
     
-    # Find non-translated regular cylinders
-    standalone_cylinder_pattern = r'(?<!translate\s{0,50})cylinder\s*\(\s*h\s*=\s*([\d.]+).*?r\s*=\s*([\d.]+)'
-    for match in re.finditer(standalone_cylinder_pattern, code):
-        try:
-            h = float(match.group(1))
-            r = float(match.group(2))
-            # Only add if not already matched
-            if not any(obj['type'] in ['cylinder', 'cone'] for obj in objects):
+    # Find standalone regular cylinders
+    cylinder_pattern = r'cylinder\s*\([^)]*h\s*=\s*([\d.]+)[^)]*r\s*=\s*([\d.]+)(?![^)]*r[12])'
+    for match in re.finditer(cylinder_pattern, code):
+        # Check if not already captured
+        match_text = code[max(0, match.start()-50):match.start()]
+        if 'translate' not in match_text and 'r1' not in match.group(0):
+            try:
+                h = float(match.group(1))
+                r = float(match.group(2))
                 objects.append({
                     'type': 'cylinder',
                     'height': h,
                     'radius': r,
                     'position': [0, 0, 0]
                 })
-        except:
-            pass
+            except:
+                pass
     
     # Find spheres
     sphere_pattern = r'sphere\s*\(\s*r\s*=\s*([\d.]+)'
@@ -137,7 +147,7 @@ def parse_openscad_to_threejs(scad_code: str) -> List[Dict[str, Any]]:
         except:
             pass
     
-    # Default fallback if no objects found
+    # Default fallback
     return objects if objects else [{'type': 'cube', 'size': [50, 50, 50], 'position': [0, 0, 0]}]
 
 
