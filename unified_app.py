@@ -1,6 +1,7 @@
 """
 PROJECT 08 - Unified Platform
 Combines Shopify Store Assistant + 3D Model Generator with 3D Preview
+Now with Multi-Provider AI Mesh Generation for Organic Shapes!
 """
 
 import streamlit as st
@@ -11,6 +12,8 @@ import requests
 import subprocess
 import re
 import os
+import time
+import json
 from anthropic import Anthropic
 from typing import Dict, List, Optional, Tuple, Any
 from enum import Enum
@@ -469,8 +472,10 @@ def load_secrets():
     # 3D Modeling Keys
     try:
         secrets['anthropic_api_key'] = st.secrets.get("ANTHROPIC_API_KEY", "")
+        secrets['meshy_api_key'] = st.secrets.get("MESHY_API_KEY", "")  # NEW!
     except:
         secrets['anthropic_api_key'] = ""
+        secrets['meshy_api_key'] = ""
     
     return secrets
 
@@ -521,6 +526,115 @@ def get_store_system_instruction(inventory):
     5. INVENTORY DATA:
     {inv_text}
     """
+
+# ============================================================================
+# MULTI-PROVIDER AI MESH GENERATION FOR ORGANIC SHAPES
+# ============================================================================
+
+class MeshProvider(Enum):
+    """Available AI mesh generation providers"""
+    MESHY = "meshy"
+    TRIPOSR = "triposr"
+
+
+class OrganicMeshGenerator:
+    """Generates organic 3D models using AI providers"""
+    
+    def __init__(self, anthropic_client: Anthropic, meshy_key: Optional[str] = None):
+        self.anthropic_client = anthropic_client
+        self.meshy_key = meshy_key
+    
+    def analyze_request(self, user_request: str) -> Dict:
+        """Analyze request characteristics"""
+        analysis_prompt = f"""Analyze: "{user_request}"
+Determine complexity (simple/medium/complex), detail (low/medium/high), style (realistic/cartoon/stylized).
+Respond ONLY as JSON: {{"complexity": "...", "detail": "...", "style": "..."}}"""
+
+        try:
+            response = self.anthropic_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=200,
+                messages=[{"role": "user", "content": analysis_prompt}]
+            )
+            text = re.sub(r'```json\n?|```\n?', '', response.content[0].text.strip())
+            return json.loads(text)
+        except:
+            return {"complexity": "medium", "detail": "medium", "style": "realistic"}
+    
+    def generate(self, user_request: str) -> Dict:
+        """Generate organic 3D model"""
+        
+        with st.spinner("🧠 Analyzing..."):
+            analysis = self.analyze_request(user_request)
+        
+        st.info(f"📊 {analysis['complexity']} complexity • {analysis['detail']} detail • {analysis['style']} style")
+        
+        if not self.meshy_key:
+            return {
+                "success": False,
+                "message": "⚠️ Add MESHY_API_KEY to secrets for organic models",
+                "stl_data": None
+            }
+        
+        return self._generate_with_meshy(user_request, analysis)
+    
+    def _generate_with_meshy(self, prompt: str, analysis: Dict) -> Dict:
+        """Generate using Meshy.ai"""
+        st.info("🎨 Generating with **Meshy.ai**...")
+        
+        try:
+            # Start task
+            response = requests.post(
+                "https://api.meshy.ai/v1/text-to-3d",
+                headers={"Authorization": f"Bearer {self.meshy_key}"},
+                json={
+                    "mode": "preview",
+                    "prompt": prompt,
+                    "art_style": "realistic" if analysis["style"] == "realistic" else "sculpture",
+                    "negative_prompt": "low quality, blurry",
+                },
+                timeout=10
+            )
+            
+            if response.status_code != 200:
+                return {"success": False, "message": f"❌ API error: {response.status_code}", "stl_data": None}
+            
+            task_id = response.json().get("result")
+            
+            # Poll for completion
+            progress_bar = st.progress(0)
+            for i in range(40):  # 2 minutes max
+                status_response = requests.get(
+                    f"https://api.meshy.ai/v1/text-to-3d/{task_id}",
+                    headers={"Authorization": f"Bearer {self.meshy_key}"}
+                )
+                
+                status_data = status_response.json()
+                status = status_data.get("status")
+                
+                if status == "SUCCEEDED":
+                    progress_bar.progress(100)
+                    stl_url = status_data.get("model_urls", {}).get("stl")
+                    stl_data = requests.get(stl_url).content
+                    
+                    return {
+                        "success": True,
+                        "message": "✓ Generated with Meshy.ai ($0.25)",
+                        "stl_data": stl_data,
+                        "provider": "Meshy.ai"
+                    }
+                elif status == "FAILED":
+                    return {"success": False, "message": "❌ Generation failed", "stl_data": None}
+                
+                progress = status_data.get("progress", 0)
+                progress_bar.progress(min(progress, 99))
+                time.sleep(3)
+            
+            return {"success": False, "message": "❌ Timeout", "stl_data": None}
+            
+        except Exception as e:
+            return {"success": False, "message": f"❌ Error: {e}", "stl_data": None}
+
 
 # ============================================================================
 # 3D MODELING AGENT CLASSES
@@ -695,22 +809,25 @@ RESPOND WITH CODE ONLY."""
             return False, "", f"Error: {e}"
 
 class ModelAgent:
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, meshy_key: Optional[str] = None):
         self.client = Anthropic(api_key=api_key)
         self.classifier = RequestClassifier(self.client)
         self.generator = ModelGenerator(self.client)
         self.fallbacks = FallbackPatterns()
+        self.mesh_generator = OrganicMeshGenerator(self.client, meshy_key)
     
     def process_request(self, user_input: str) -> Dict:
         request_type = self.classifier.classify(user_input)
         
         if request_type == RequestType.ORGANIC:
-            return {
-                "success": False,
-                "scad_code": "",
-                "message": "⚠ Organic shapes not suitable for OpenSCAD. Try Blender or ZBrush.",
-                "fallback_used": False
-            }
+            # NEW: Generate organic shapes with AI!
+            st.info("🎨 Detected organic shape - using AI mesh generation...")
+            mesh_result = self.mesh_generator.generate(user_input)
+            
+            # Add type marker for UI
+            mesh_result['request_type'] = 'organic'
+            mesh_result['is_mesh'] = True
+            return mesh_result
         
         fallback = self._check_fallbacks(user_input)
         if fallback:
@@ -721,7 +838,8 @@ class ModelAgent:
             "success": success,
             "scad_code": code,
             "message": message,
-            "fallback_used": False
+            "fallback_used": False,
+            "is_mesh": False
         }
     
     def _check_fallbacks(self, user_input: str) -> Optional[Dict]:
@@ -915,7 +1033,9 @@ def render_3d_generator(secrets):
     # Process request
     if submit and user_input:
         try:
-            agent = ModelAgent(secrets['anthropic_api_key'])
+            # Initialize agent with both API keys
+            meshy_key = secrets.get('meshy_api_key', None)
+            agent = ModelAgent(secrets['anthropic_api_key'], meshy_key)
             result = agent.process_request(user_input)
             
             st.session_state['3d_history'].append({
@@ -943,31 +1063,52 @@ def render_3d_generator(secrets):
             </div>
             """, unsafe_allow_html=True)
             
-            # 3D Preview
-            st.markdown("#### 🔷 3D Preview")
-            try:
-                preview_html = generate_threejs_html(result['scad_code'], height=500)
-                components.html(preview_html, height=520, scrolling=False)
-            except Exception as e:
-                st.warning(f"Preview not available: {e}")
+            # Check if it's a mesh (STL) or OpenSCAD
+            is_mesh = result.get('is_mesh', False)
             
-            st.markdown("---")
-            
-            # Code viewer and download
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                with st.expander("📄 View OpenSCAD Code", expanded=False):
-                    st.code(result['scad_code'], language='javascript')
-            
-            with col2:
-                st.download_button(
-                    label="💾 Download .scad",
-                    data=result['scad_code'],
-                    file_name=f"model_{len(st.session_state['3d_history']) - idx}.scad",
-                    mime="text/plain",
-                    use_container_width=True
-                )
+            if is_mesh:
+                # AI-Generated Mesh (STL)
+                st.markdown("#### 🎨 AI-Generated Organic Model")
+                st.success(f"Generated with **{result.get('provider', 'AI')}**")
+                
+                # Download STL
+                if result.get('stl_data'):
+                    st.download_button(
+                        label="💾 Download .stl file (Ready to Print!)",
+                        data=result['stl_data'],
+                        file_name=f"organic_model_{len(st.session_state['3d_history']) - idx}.stl",
+                        mime="application/octet-stream",
+                        use_container_width=True
+                    )
+                    st.info("🖨️ This STL file is ready to slice and print!")
+                
+            else:
+                # OpenSCAD Model
+                st.markdown("#### 🔷 3D Preview")
+                st.info("⚠️ Preview shows basic geometry only. Holes, windows, and carved details are not visible here. Download the .scad file to see the complete, accurate model in OpenSCAD!")
+                try:
+                    preview_html = generate_threejs_html(result['scad_code'], height=500)
+                    components.html(preview_html, height=520, scrolling=False)
+                except Exception as e:
+                    st.warning(f"Preview not available: {e}")
+                
+                st.markdown("---")
+                
+                # Code viewer and download
+                col1, col2 = st.columns([2, 1])
+                
+                with col1:
+                    with st.expander("📄 View OpenSCAD Code", expanded=False):
+                        st.code(result['scad_code'], language='javascript')
+                
+                with col2:
+                    st.download_button(
+                        label="💾 Download .scad",
+                        data=result['scad_code'],
+                        file_name=f"model_{len(st.session_state['3d_history']) - idx}.scad",
+                        mime="text/plain",
+                        use_container_width=True
+                    )
         else:
             st.markdown(f"""
             <div class="error-box">
