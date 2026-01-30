@@ -600,7 +600,8 @@ Respond ONLY as JSON: {{"complexity": "...", "detail": "...", "style": "..."}}""
                 timeout=10
             )
             
-            if response.status_code != 200:
+            # 200 OK or 202 Accepted are both success
+            if response.status_code not in [200, 202]:
                 error_detail = response.text
                 return {
                     "success": False, 
