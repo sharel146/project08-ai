@@ -622,17 +622,30 @@ Respond ONLY as JSON: {{"complexity": "...", "detail": "...", "style": "..."}}""
             
             # Poll for completion - UPDATED ENDPOINT
             progress_bar = st.progress(0)
+            status_text = st.empty()
+            
             for i in range(40):  # 2 minutes max
                 status_response = requests.get(
                     f"https://api.meshy.ai/v2/text-to-3d/{task_id}",
                     headers={"Authorization": f"Bearer {self.meshy_key}"}
                 )
                 
+                if status_response.status_code != 200:
+                    return {
+                        "success": False,
+                        "message": f"❌ Status check failed: {status_response.status_code} - {status_response.text}",
+                        "stl_data": None
+                    }
+                
                 status_data = status_response.json()
                 status = status_data.get("status")
                 
+                # Log full response for debugging
+                st.write(f"Debug - Status response: {status_data}")
+                
                 if status == "SUCCEEDED":
                     progress_bar.progress(100)
+                    status_text.success("✅ Complete!")
                     
                     # Get GLB URL and convert to STL
                     model_urls = status_data.get("model_urls", {})
@@ -650,13 +663,15 @@ Respond ONLY as JSON: {{"complexity": "...", "detail": "...", "style": "..."}}""
                             "file_format": "glb"
                         }
                     else:
-                        return {"success": False, "message": "❌ No model file available", "stl_data": None}
+                        return {"success": False, "message": f"❌ No model file. Response: {status_data}", "stl_data": None}
                         
                 elif status == "FAILED":
-                    return {"success": False, "message": "❌ Generation failed", "stl_data": None}
+                    error_msg = status_data.get("error", "Unknown error")
+                    return {"success": False, "message": f"❌ Generation failed: {error_msg}", "stl_data": None}
                 
                 progress = status_data.get("progress", 0)
                 progress_bar.progress(min(progress, 99))
+                status_text.text(f"Generating... {progress}%")
                 time.sleep(3)
             
             return {"success": False, "message": "❌ Timeout", "stl_data": None}
