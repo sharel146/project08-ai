@@ -994,7 +994,7 @@ def render_store_assistant(secrets):
     
     # Initialize Gemini
     try:
-        client = genai.Client(api_key=secrets['google_api_key'])
+        genai.configure(api_key=secrets['google_api_key'])
         products = get_inventory(secrets['shopify_api_key'], secrets['shopify_store_url'])
     except Exception as e:
         st.error(f"Error initializing store: {e}")
@@ -1018,20 +1018,18 @@ def render_store_assistant(secrets):
             st.markdown(prompt)
         
         try:
-            history = [
-                {"role": "user" if m["role"]=="user" else "model", 
-                 "parts": [{"text": str(m["content"])}]} 
-                for m in st.session_state.store_messages[:-1]
-            ]
-            
-            chat = client.chats.create(
-                model="gemini-1.5-flash",  # Stable model that works
-                history=history,
-                config=types.GenerateContentConfig(
-                    system_instruction=get_store_system_instruction(products),
-                    temperature=0.7
-                )
+            model = genai.GenerativeModel(
+                model_name='gemini-1.5-flash',
+                system_instruction=get_store_system_instruction(products)
             )
+            
+            # Convert chat history to Gemini format
+            history = []
+            for msg in st.session_state.store_messages[:-1]:
+                role = "user" if msg["role"] == "user" else "model"
+                history.append({"role": role, "parts": [msg["content"]]})
+            
+            chat = model.start_chat(history=history)
             
             with st.spinner("Processing..."):
                 response = chat.send_message(prompt)
