@@ -1,2 +1,11 @@
-anthropic>=0.18.0
+# Requirements for Unified Project 08 Platform
+
+# Streamlit
 streamlit>=1.28.0
+
+# For Shopify Store Assistant
+google-generativeai
+requests
+
+# For 3D Model Generator
+anthropic>=0.18.0
