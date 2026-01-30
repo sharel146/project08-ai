@@ -1025,7 +1025,7 @@ def render_store_assistant(secrets):
             ]
             
             chat = client.chats.create(
-                model="gemini-2.0-flash-exp",
+                model="gemini-1.5-flash",  # Stable model that works
                 history=history,
                 config=types.GenerateContentConfig(
                     system_instruction=get_store_system_instruction(products),
