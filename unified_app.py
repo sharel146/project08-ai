@@ -9,6 +9,7 @@ from google.genai import types
 import requests
 import subprocess
 import re
+import os
 from anthropic import Anthropic
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
@@ -340,11 +341,48 @@ Respond with ONLY one word: FUNCTIONAL or ORGANIC"""
         except:
             return RequestType.UNKNOWN
 
+class OpenSCADCompiler:
+    @staticmethod
+    def compile_to_stl(code: str, output_path: str) -> Tuple[bool, str]:
+        """Compile OpenSCAD code to STL file"""
+        temp_scad = "/tmp/temp_model.scad"
+        try:
+            with open(temp_scad, 'w') as f:
+                f.write(code)
+        except Exception as e:
+            return False, f"Failed to write file: {e}"
+        
+        try:
+            result = subprocess.run(
+                [Config.OPENSCAD_BINARY, "-o", output_path, temp_scad],
+                capture_output=True,
+                text=True,
+                timeout=Config.OPENSCAD_TIMEOUT
+            )
+            
+            if result.returncode == 0:
+                return True, "STL compiled successfully"
+            else:
+                error_msg = result.stderr if result.stderr else result.stdout
+                return False, error_msg
+                
+        except subprocess.TimeoutExpired:
+            return False, "Compilation timeout"
+        except FileNotFoundError:
+            return False, "OpenSCAD not installed - cannot generate STL"
+        except Exception as e:
+            return False, f"Compilation error: {e}"
+
 class ModelGenerator:
     def __init__(self, client: Anthropic):
         self.client = client
+        self.compiler = OpenSCADCompiler()
     
-    def generate(self, user_request: str, skip_compilation: bool = True) -> Tuple[bool, str, str]:
+    def generate(self, user_request: str, skip_compilation: bool = False) -> Tuple[bool, str, str, Optional[str]]:
+        """
+        Generate OpenSCAD code and optionally compile to STL
+        Returns: (success, scad_code, message, stl_path)
+        """
         system_prompt = f"""Expert OpenSCAD programmer for Bambu Lab A1.
 BUILD: {Config.BUILD_VOLUME['x']}mm cube
 RULES: Valid code only, $fn>=50, wall>=1.2mm, no explanations.
@@ -362,9 +400,21 @@ RESPOND WITH CODE ONLY."""
             code = re.sub(r'```(?:openscad)?\n', '', response.content[0].text)
             code = re.sub(r'```\s*$', '', code).strip()
             
-            return True, code, "✓ Code generated successfully"
+            # Try to compile to STL
+            stl_path = None
+            if not skip_compilation:
+                with st.spinner("🔧 Compiling to STL..."):
+                    import tempfile
+                    stl_path = tempfile.mktemp(suffix='.stl')
+                    success, msg = self.compiler.compile_to_stl(code, stl_path)
+                    if success:
+                        return True, code, "✓ Code generated and STL compiled", stl_path
+                    else:
+                        return True, code, f"✓ Code generated (STL compilation failed: {msg})", None
+            
+            return True, code, "✓ Code generated successfully", None
         except Exception as e:
-            return False, "", f"Error: {e}"
+            return False, "", f"Error: {e}", None
 
 class ModelAgent:
     def __init__(self, api_key: str):
@@ -381,33 +431,52 @@ class ModelAgent:
                 "success": False,
                 "scad_code": "",
                 "message": "⚠ Organic shapes not suitable for OpenSCAD. Try Blender or ZBrush.",
-                "fallback_used": False
+                "fallback_used": False,
+                "stl_path": None
             }
         
         fallback = self._check_fallbacks(user_input)
         if fallback:
             return fallback
         
-        success, code, message = self.generator.generate(user_input)
+        success, code, message, stl_path = self.generator.generate(user_input)
         return {
             "success": success,
             "scad_code": code,
             "message": message,
-            "fallback_used": False
+            "fallback_used": False,
+            "stl_path": stl_path
         }
     
     def _check_fallbacks(self, user_input: str) -> Optional[Dict]:
         lower = user_input.lower()
+        code = None
+        
         if "funnel" in lower:
-            return {"success": True, "scad_code": self.fallbacks.funnel(), 
-                   "message": "✓ Funnel template", "fallback_used": True}
-        if "bracket" in lower:
-            return {"success": True, "scad_code": self.fallbacks.bracket(), 
-                   "message": "✓ Bracket template", "fallback_used": True}
-        if any(w in lower for w in ["box", "container"]):
+            code = self.fallbacks.funnel()
+            msg = "✓ Funnel template"
+        elif "bracket" in lower:
+            code = self.fallbacks.bracket()
+            msg = "✓ Bracket template"
+        elif any(w in lower for w in ["box", "container"]):
             has_lid = "lid" in lower
-            return {"success": True, "scad_code": self.fallbacks.box(lid=has_lid), 
-                   "message": "✓ Box template", "fallback_used": True}
+            code = self.fallbacks.box(lid=has_lid)
+            msg = "✓ Box template"
+        
+        if code:
+            # Try to compile fallback to STL
+            import tempfile
+            stl_path = tempfile.mktemp(suffix='.stl')
+            success, compile_msg = OpenSCADCompiler.compile_to_stl(code, stl_path)
+            
+            return {
+                "success": True,
+                "scad_code": code,
+                "message": msg + (" + STL compiled" if success else ""),
+                "fallback_used": True,
+                "stl_path": stl_path if success else None
+            }
+        
         return None
 
 # ============================================================================
@@ -601,15 +670,35 @@ def render_3d_generator(secrets):
             </div>
             """, unsafe_allow_html=True)
             
-            with st.expander("📄 View Code", expanded=False):
+            with st.expander("📄 View OpenSCAD Code", expanded=False):
                 st.code(result['scad_code'], language='javascript')
             
-            st.download_button(
-                label="💾 Download .scad",
-                data=result['scad_code'],
-                file_name=f"model_{len(st.session_state['3d_history']) - idx}.scad",
-                mime="text/plain"
-            )
+            # Download buttons
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.download_button(
+                    label="💾 Download .scad",
+                    data=result['scad_code'],
+                    file_name=f"model_{len(st.session_state['3d_history']) - idx}.scad",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+            
+            with col2:
+                # STL download if available
+                if result.get('stl_path') and os.path.exists(result['stl_path']):
+                    with open(result['stl_path'], 'rb') as f:
+                        stl_data = f.read()
+                    st.download_button(
+                        label="🎯 Download .stl",
+                        data=stl_data,
+                        file_name=f"model_{len(st.session_state['3d_history']) - idx}.stl",
+                        mime="application/octet-stream",
+                        use_container_width=True
+                    )
+                else:
+                    st.info("STL not available (OpenSCAD not installed)")
         else:
             st.markdown(f"""
             <div class="error-box">
