@@ -661,8 +661,7 @@ Respond ONLY as JSON: {{"complexity": "...", "detail": "...", "style": "..."}}""
                         }
                     else:
                         return {"success": False, "message": "❌ No model file", "stl_data": None}
-                        "provider": "Meshy.ai"
-                    }
+                        
                 elif status == "FAILED":
                     return {"success": False, "message": "❌ Generation failed", "stl_data": None}
                 
