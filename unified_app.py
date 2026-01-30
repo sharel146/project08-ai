@@ -608,7 +608,16 @@ Respond ONLY as JSON: {{"complexity": "...", "detail": "...", "style": "..."}}""
                     "stl_data": None
                 }
             
-            task_id = response.json().get("result")
+            response_data = response.json()
+            # Meshy returns either {"result": "task_id"} or {"id": "task_id"}
+            task_id = response_data.get("result") or response_data.get("id")
+            
+            if not task_id:
+                return {
+                    "success": False,
+                    "message": f"❌ No task ID in response: {response_data}",
+                    "stl_data": None
+                }
             
             # Poll for completion - UPDATED ENDPOINT
             progress_bar = st.progress(0)
