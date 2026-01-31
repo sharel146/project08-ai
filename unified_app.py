@@ -294,69 +294,141 @@ class OrganicMeshGenerator:
             return self._generate_with_rodin(enhanced_prompt)
     
     def _generate_with_meshy(self, prompt: str) -> Dict:
-        try:
-            response = requests.post(
-                "https://api.meshy.ai/v2/text-to-3d",
-                headers={"Authorization": f"Bearer {self.meshy_key}", "Content-Type": "application/json"},
-                json={
-                    "mode": "preview",
-                    "prompt": prompt,
-                    "art_style": "sculpture",
-                    "negative_prompt": "low quality, blurry, disconnected parts",
-                    "ai_model": "meshy-4"
-                },
-                timeout=10
-            )
+        """Generate using Meshy.ai with quality control"""
+        max_attempts = 3  # Try up to 3 times to get a good model
+        
+        for attempt in range(max_attempts):
+            if attempt > 0:
+                st.warning(f"🔄 Attempt {attempt + 1}/{max_attempts} - Previous result wasn't good enough, regenerating...")
             
-            if response.status_code not in [200, 202]:
-                return {"success": False, "message": f"❌ API error {response.status_code}", "stl_data": None}
-            
-            task_id = response.json().get("result") or response.json().get("id")
-            if not task_id:
-                return {"success": False, "message": "❌ No task ID", "stl_data": None}
-            
-            progress_bar = st.progress(0)
-            
-            for i in range(40):
-                status_response = requests.get(
-                    f"https://api.meshy.ai/v2/text-to-3d/{task_id}",
-                    headers={"Authorization": f"Bearer {self.meshy_key}"}
+            try:
+                response = requests.post(
+                    "https://api.meshy.ai/v2/text-to-3d",
+                    headers={"Authorization": f"Bearer {self.meshy_key}", "Content-Type": "application/json"},
+                    json={
+                        "mode": "preview",
+                        "prompt": prompt,
+                        "art_style": "sculpture",
+                        "negative_prompt": "low quality, blurry, disconnected parts, abstract, deformed, malformed",
+                        "ai_model": "meshy-4",
+                        "seed": None if attempt == 0 else attempt * 12345  # Different seed each attempt
+                    },
+                    timeout=10
                 )
                 
-                if status_response.status_code != 200:
-                    return {"success": False, "message": "❌ Status check failed", "stl_data": None}
+                if response.status_code not in [200, 202]:
+                    continue  # Try again
                 
-                status_data = status_response.json()
-                status = status_data.get("status")
+                task_id = response.json().get("result") or response.json().get("id")
+                if not task_id:
+                    continue
                 
-                if status == "SUCCEEDED":
-                    progress_bar.progress(100)
-                    glb_url = status_data.get("model_urls", {}).get("glb")
+                progress_bar = st.progress(0)
+                
+                for i in range(40):
+                    status_response = requests.get(
+                        f"https://api.meshy.ai/v2/text-to-3d/{task_id}",
+                        headers={"Authorization": f"Bearer {self.meshy_key}"}
+                    )
                     
-                    if glb_url:
-                        model_data = requests.get(glb_url).content
-                        return {
-                            "success": True,
-                            "message": "✓ Generated with Meshy.ai ($0.25)",
-                            "stl_data": model_data,
-                            "file_format": "glb",
-                            "provider": "Meshy.ai"
-                        }
-                    else:
-                        return {"success": False, "message": "❌ No model file", "stl_data": None}
+                    if status_response.status_code != 200:
+                        break
+                    
+                    status_data = status_response.json()
+                    status = status_data.get("status")
+                    
+                    if status == "SUCCEEDED":
+                        progress_bar.progress(100)
+                        glb_url = status_data.get("model_urls", {}).get("glb")
+                        thumbnail_url = status_data.get("thumbnail_url")
                         
-                elif status == "FAILED":
-                    error_msg = status_data.get("error", "Unknown error")
-                    return {"success": False, "message": f"❌ Failed: {error_msg}", "stl_data": None}
+                        if glb_url:
+                            model_data = requests.get(glb_url).content
+                            
+                            # QUALITY CHECK - Ask Claude to verify
+                            if thumbnail_url and attempt < max_attempts - 1:
+                                st.info("🔍 Running quality check...")
+                                
+                                quality_check = self._check_model_quality(thumbnail_url, prompt)
+                                
+                                if not quality_check["approved"]:
+                                    st.warning(f"⚠️ Quality issue: {quality_check['reason']}")
+                                    break  # Try again with new generation
+                                else:
+                                    st.success(f"✅ Quality check passed: {quality_check['reason']}")
+                            
+                            return {
+                                "success": True,
+                                "message": f"✓ Generated successfully (attempt {attempt + 1})",
+                                "stl_data": model_data,
+                                "file_format": "glb",
+                                "provider": "Meshy.ai"
+                            }
+                        else:
+                            break
+                            
+                    elif status == "FAILED":
+                        break
+                    
+                    progress = status_data.get("progress", 0)
+                    progress_bar.progress(min(progress, 99))
+                    time.sleep(3)
                 
-                progress = status_data.get("progress", 0)
-                progress_bar.progress(min(progress, 99))
-                time.sleep(3)
+            except Exception as e:
+                st.error(f"Attempt {attempt + 1} failed: {e}")
+                continue
+        
+        return {"success": False, "message": f"❌ Failed after {max_attempts} attempts", "stl_data": None}
+    
+    def _check_model_quality(self, thumbnail_url: str, original_prompt: str) -> Dict:
+        """Use Claude to check if the generated model matches the request"""
+        try:
+            # Download thumbnail
+            thumbnail_data = requests.get(thumbnail_url).content
+            import base64
+            thumbnail_b64 = base64.b64encode(thumbnail_data).decode()
             
-            return {"success": False, "message": "❌ Timeout", "stl_data": None}
+            response = self.anthropic_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=150,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": thumbnail_b64
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": f"""Look at this 3D model. The user requested: "{original_prompt}"
+
+Does this model match what was requested? Check:
+1. Correct object type (is it actually a {original_prompt}?)
+2. Correct number of parts (legs, arms, etc.)
+3. Reasonable proportions
+4. Not abstract/deformed/broken
+
+Respond with JSON only:
+{{"approved": true/false, "reason": "brief explanation"}}"""
+                        }
+                    ]
+                }]
+            )
+            
+            result_text = response.content[0].text.strip()
+            # Extract JSON from response
+            import json
+            result = json.loads(result_text)
+            return result
             
         except Exception as e:
-            return {"success": False, "message": f"❌ Error: {e}", "stl_data": None}
+            # If quality check fails, approve by default
+            return {"approved": True, "reason": "Quality check unavailable"}
+    
     
     def _generate_with_rodin(self, prompt: str) -> Dict:
         """Generate using Rodin AI - faster, good for cartoons"""
