@@ -594,9 +594,16 @@ class ModelGenerator:
                 else:
                     st.info(f"🔍 **Using your prompt:** {user_request}")
             
-            system_prompt = f"""Expert OpenSCAD programmer.
+            system_prompt = f"""Expert OpenSCAD programmer specializing in beautiful, functional designs.
 BUILD: {Config.BUILD_VOLUME['x']}mm cube
-Create realistic, functional 3D models with proper dimensions.
+
+Create professional-quality 3D models with:
+- Realistic, functional dimensions
+- Smooth, refined surfaces (use fillets, chamfers, rounded edges)
+- Elegant proportions and visual appeal
+- Professional detailing (not crude or blocky)
+- High-quality finish suitable for actual manufacturing
+
 Respond with ONLY valid OpenSCAD code, no explanations."""
             
             try:
@@ -630,7 +637,7 @@ Respond with ONLY valid OpenSCAD code, no explanations."""
         return False, "", f"Failed after {max_attempts} attempts"
     
     def _check_code_quality(self, code: str, original_request: str, enhanced_request: str) -> Dict:
-        """Check if OpenSCAD code matches the request"""
+        """Check if OpenSCAD code is both functional AND aesthetically pleasing"""
         try:
             check_prompt = f"""Review this OpenSCAD code for a "{original_request}":
 
@@ -640,24 +647,39 @@ Respond with ONLY valid OpenSCAD code, no explanations."""
 
 Enhanced request: "{enhanced_request}"
 
-Check if:
-1. Code creates the correct object type
-2. Dimensions are reasonable and functional (not tiny, not huge)
-3. Code is structurally complete (no missing parts)
-4. Object would actually work for its intended purpose
+Check TWO things:
+1. FUNCTIONALITY - Does it work?
+   - Correct object type
+   - Realistic, usable dimensions
+   - Structurally complete
+   - Would actually function for its purpose
 
-For example, a door knob should be:
-- Cylindrical/spherical graspable part
-- 50-70mm diameter (hand-sized)
-- Mounting base or shaft to attach to door
-- Proper proportions to actually function
+2. AESTHETICS - Does it look good?
+   - Clean, professional design
+   - Smooth surfaces and edges (use fillets/chamfers)
+   - Visually appealing proportions
+   - Not just basic geometric shapes
+   - Refined details (not crude or blocky)
+
+For example, a GOOD door knob should have:
+✅ 60mm diameter spherical or rounded handle
+✅ Smooth chamfered edges
+✅ Decorative details or texture
+✅ Elegant mounting base with rounded transitions
+✅ Professional, refined appearance
+
+A BAD door knob would be:
+❌ Just a plain sphere with a cylinder
+❌ Sharp 90-degree edges
+❌ No visual refinement
+❌ Looks crude or unfinished
 
 Respond with JSON only:
-{{"approved": true/false, "reason": "brief explanation"}}"""
+{{"approved": true/false, "reason": "brief explanation covering both function and aesthetics"}}"""
 
             response = self.client.messages.create(
                 model=Config.MODEL,
-                max_tokens=150,
+                max_tokens=200,
                 messages=[{"role": "user", "content": check_prompt}]
             )
             
