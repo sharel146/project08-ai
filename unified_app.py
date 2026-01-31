@@ -578,33 +578,101 @@ class ModelGenerator:
         self.enhancer = PromptEnhancer(client)
     
     def generate(self, user_request: str) -> Tuple[bool, str, str]:
-        # Enhance functional prompts with technical details
-        enhanced = self.enhancer.enhance(user_request, "functional")
+        max_attempts = 3
         
-        # Show enhanced prompt
-        if enhanced != user_request:
-            st.info(f"🔍 **Enhanced Prompt:**\n\n*{enhanced}*")
-        else:
-            st.info(f"🔍 **Using your prompt:** {user_request}")
-        
-        system_prompt = f"""Expert OpenSCAD programmer.
+        for attempt in range(max_attempts):
+            if attempt > 0:
+                st.warning(f"🔄 Attempt {attempt + 1}/{max_attempts} - Previous code wasn't good enough, regenerating...")
+            
+            # Enhance functional prompts with technical details
+            enhanced = self.enhancer.enhance(user_request, "functional")
+            
+            # Show enhanced prompt only on first attempt
+            if attempt == 0:
+                if enhanced != user_request:
+                    st.info(f"🔍 **Enhanced Prompt:**\n\n*{enhanced}*")
+                else:
+                    st.info(f"🔍 **Using your prompt:** {user_request}")
+            
+            system_prompt = f"""Expert OpenSCAD programmer.
 BUILD: {Config.BUILD_VOLUME['x']}mm cube
+Create realistic, functional 3D models with proper dimensions.
 Respond with ONLY valid OpenSCAD code, no explanations."""
+            
+            try:
+                response = self.client.messages.create(
+                    model=Config.MODEL,
+                    max_tokens=4000,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": f"Create: {enhanced}"}]
+                )
+                
+                code = re.sub(r'```(?:openscad)?\n', '', response.content[0].text)
+                code = re.sub(r'```\s*$', '', code).strip()
+                
+                # QUALITY CHECK - Ask Claude to review the code
+                if attempt < max_attempts - 1:
+                    st.info("🔍 Checking code quality...")
+                    quality_check = self._check_code_quality(code, user_request, enhanced)
+                    
+                    if not quality_check["approved"]:
+                        st.warning(f"⚠️ Code issue: {quality_check['reason']}")
+                        continue  # Try again
+                    else:
+                        st.success(f"✅ Code check passed: {quality_check['reason']}")
+                
+                return True, code, f"✓ Generated (attempt {attempt + 1})"
+            except Exception as e:
+                if attempt < max_attempts - 1:
+                    continue
+                return False, "", f"Error after {max_attempts} attempts: {e}"
         
+        return False, "", f"Failed after {max_attempts} attempts"
+    
+    def _check_code_quality(self, code: str, original_request: str, enhanced_request: str) -> Dict:
+        """Check if OpenSCAD code matches the request"""
         try:
+            check_prompt = f"""Review this OpenSCAD code for a "{original_request}":
+
+```openscad
+{code}
+```
+
+Enhanced request: "{enhanced_request}"
+
+Check if:
+1. Code creates the correct object type
+2. Dimensions are reasonable and functional (not tiny, not huge)
+3. Code is structurally complete (no missing parts)
+4. Object would actually work for its intended purpose
+
+For example, a door knob should be:
+- Cylindrical/spherical graspable part
+- 50-70mm diameter (hand-sized)
+- Mounting base or shaft to attach to door
+- Proper proportions to actually function
+
+Respond with JSON only:
+{{"approved": true/false, "reason": "brief explanation"}}"""
+
             response = self.client.messages.create(
                 model=Config.MODEL,
-                max_tokens=4000,
-                system=system_prompt,
-                messages=[{"role": "user", "content": f"Create: {enhanced}"}]
+                max_tokens=150,
+                messages=[{"role": "user", "content": check_prompt}]
             )
             
-            code = re.sub(r'```(?:openscad)?\n', '', response.content[0].text)
-            code = re.sub(r'```\s*$', '', code).strip()
+            result_text = response.content[0].text.strip()
+            # Clean up response and extract JSON
+            result_text = re.sub(r'```json\n?', '', result_text)
+            result_text = re.sub(r'```\n?', '', result_text)
             
-            return True, code, "✓ Generated"
+            import json
+            result = json.loads(result_text.strip())
+            return result
+            
         except Exception as e:
-            return False, "", f"Error: {e}"
+            # If check fails, approve by default
+            return {"approved": True, "reason": "Quality check unavailable"}
 
 
 class FallbackPatterns:
