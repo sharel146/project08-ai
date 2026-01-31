@@ -203,14 +203,38 @@ class PromptEnhancer:
 
 
 # ============================================================================
-# AI MESH GENERATION
+# AI MESH GENERATION (Multi-Provider)
 # ============================================================================
 
+class MeshProvider(Enum):
+    MESHY = "meshy"
+    RODIN = "rodin"
+
+
 class OrganicMeshGenerator:
-    def __init__(self, anthropic_client: Anthropic, meshy_key: Optional[str] = None):
+    def __init__(self, anthropic_client: Anthropic, meshy_key: Optional[str] = None, rodin_key: Optional[str] = None):
         self.anthropic_client = anthropic_client
         self.meshy_key = meshy_key
+        self.rodin_key = rodin_key
         self.enhancer = PromptEnhancer(anthropic_client)
+    
+    def select_provider(self, prompt: str) -> MeshProvider:
+        """Smart provider selection based on prompt"""
+        lower = prompt.lower()
+        
+        # Rodin is better for: cartoons, stylized, simple characters
+        if any(word in lower for word in ['cartoon', 'stylized', 'simple', 'cute', 'toy']):
+            if self.rodin_key:
+                return MeshProvider.RODIN
+        
+        # Meshy is better for: realistic, detailed, complex
+        # Default to Meshy if available, otherwise Rodin
+        if self.meshy_key:
+            return MeshProvider.MESHY
+        elif self.rodin_key:
+            return MeshProvider.RODIN
+        
+        return None
     
     def generate(self, user_request: str) -> Dict:
         enhanced_prompt = self.enhancer.enhance(user_request, "organic")
@@ -218,10 +242,18 @@ class OrganicMeshGenerator:
         if enhanced_prompt != user_request:
             st.success(f"💡 Enhanced: \"{enhanced_prompt}\"")
         
-        if not self.meshy_key:
-            return {"success": False, "message": "⚠️ Add MESHY_API_KEY to secrets", "stl_data": None}
+        # Select best provider
+        provider = self.select_provider(enhanced_prompt)
         
-        return self._generate_with_meshy(enhanced_prompt)
+        if not provider:
+            return {"success": False, "message": "⚠️ Add MESHY_API_KEY or RODIN_API_KEY to secrets", "stl_data": None}
+        
+        if provider == MeshProvider.MESHY:
+            st.info("🎨 Using Meshy.ai (best for realistic shapes)")
+            return self._generate_with_meshy(enhanced_prompt)
+        else:
+            st.info("🎨 Using Rodin AI (best for cartoon/stylized)")
+            return self._generate_with_rodin(enhanced_prompt)
     
     def _generate_with_meshy(self, prompt: str) -> Dict:
         try:
@@ -267,9 +299,10 @@ class OrganicMeshGenerator:
                         model_data = requests.get(glb_url).content
                         return {
                             "success": True,
-                            "message": "✓ Generated successfully",
+                            "message": "✓ Generated with Meshy.ai ($0.25)",
                             "stl_data": model_data,
-                            "file_format": "glb"
+                            "file_format": "glb",
+                            "provider": "Meshy.ai"
                         }
                     else:
                         return {"success": False, "message": "❌ No model file", "stl_data": None}
@@ -285,6 +318,84 @@ class OrganicMeshGenerator:
             return {"success": False, "message": "❌ Timeout", "stl_data": None}
             
         except Exception as e:
+            return {"success": False, "message": f"❌ Error: {e}", "stl_data": None}
+    
+    def _generate_with_rodin(self, prompt: str) -> Dict:
+        """Generate using Rodin AI - faster, good for cartoons"""
+        try:
+            response = requests.post(
+                "https://hyperhuman.deemos.com/api/v2/rodin",
+                headers={
+                    "Authorization": f"Bearer {self.rodin_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "prompt": prompt,
+                    "tier": "standard"  # Fast generation
+                },
+                timeout=10
+            )
+            
+            if response.status_code not in [200, 201]:
+                # If Rodin fails, fallback to Meshy if available
+                if self.meshy_key:
+                    st.warning("⚠️ Rodin failed, trying Meshy.ai...")
+                    return self._generate_with_meshy(prompt)
+                return {"success": False, "message": f"❌ API error {response.status_code}", "stl_data": None}
+            
+            task_uuid = response.json().get("uuid")
+            if not task_uuid:
+                return {"success": False, "message": "❌ No task ID", "stl_data": None}
+            
+            progress_bar = st.progress(0)
+            
+            # Rodin is usually faster - 30 second timeout
+            for i in range(20):
+                status_response = requests.get(
+                    f"https://hyperhuman.deemos.com/api/v2/rodin/{task_uuid}",
+                    headers={"Authorization": f"Bearer {self.rodin_key}"}
+                )
+                
+                if status_response.status_code != 200:
+                    return {"success": False, "message": "❌ Status check failed", "stl_data": None}
+                
+                status_data = status_response.json()
+                status = status_data.get("status")
+                
+                if status == "success":
+                    progress_bar.progress(100)
+                    model_url = status_data.get("model_url")
+                    
+                    if model_url:
+                        model_data = requests.get(model_url).content
+                        return {
+                            "success": True,
+                            "message": "✓ Generated with Rodin AI ($0.15)",
+                            "stl_data": model_data,
+                            "file_format": "glb",
+                            "provider": "Rodin AI"
+                        }
+                    else:
+                        return {"success": False, "message": "❌ No model file", "stl_data": None}
+                        
+                elif status == "failed":
+                    # Fallback to Meshy if available
+                    if self.meshy_key:
+                        st.warning("⚠️ Rodin failed, trying Meshy.ai...")
+                        return self._generate_with_meshy(prompt)
+                    return {"success": False, "message": "❌ Generation failed", "stl_data": None}
+                
+                progress = min((i + 1) * 5, 95)  # Estimate progress
+                progress_bar.progress(progress)
+                time.sleep(1.5)  # Rodin is faster, check more frequently
+            
+            return {"success": False, "message": "❌ Timeout", "stl_data": None}
+            
+        except Exception as e:
+            # Fallback to Meshy on any error
+            if self.meshy_key:
+                st.warning(f"⚠️ Rodin error: {e}. Trying Meshy.ai...")
+                return self._generate_with_meshy(prompt)
             return {"success": False, "message": f"❌ Error: {e}", "stl_data": None}
 
 
@@ -379,12 +490,12 @@ class FallbackPatterns:
 
 
 class ModelAgent:
-    def __init__(self, anthropic_key: str, meshy_key: Optional[str] = None):
+    def __init__(self, anthropic_key: str, meshy_key: Optional[str] = None, rodin_key: Optional[str] = None):
         self.client = Anthropic(api_key=anthropic_key)
         self.classifier = RequestClassifier(self.client)
         self.generator = ModelGenerator(self.client)
         self.fallbacks = FallbackPatterns()
-        self.mesh_generator = OrganicMeshGenerator(self.client, meshy_key)
+        self.mesh_generator = OrganicMeshGenerator(self.client, meshy_key, rodin_key)
     
     def process_request(self, user_input: str) -> Dict:
         request_type = self.classifier.classify(user_input)
@@ -417,13 +528,27 @@ def main():
     try:
         anthropic_key = st.secrets.get("ANTHROPIC_API_KEY", "")
         meshy_key = st.secrets.get("MESHY_API_KEY", "")
+        rodin_key = st.secrets.get("RODIN_API_KEY", "")
     except:
         anthropic_key = ""
         meshy_key = ""
+        rodin_key = ""
     
     if not anthropic_key:
         st.error("⚠️ Add ANTHROPIC_API_KEY to Streamlit secrets")
         return
+    
+    # Show available providers
+    providers_available = []
+    if meshy_key:
+        providers_available.append("Meshy.ai ($0.25)")
+    if rodin_key:
+        providers_available.append("Rodin AI ($0.15)")
+    
+    if providers_available:
+        st.sidebar.success(f"🎨 Providers: {', '.join(providers_available)}")
+    else:
+        st.sidebar.warning("⚠️ Add MESHY_API_KEY or RODIN_API_KEY for organic shapes")
     
     # Initialize history
     if 'history' not in st.session_state:
@@ -448,7 +573,7 @@ def main():
     # Process request
     if submit and user_input:
         try:
-            agent = ModelAgent(anthropic_key, meshy_key)
+            agent = ModelAgent(anthropic_key, meshy_key, rodin_key)
             result = agent.process_request(user_input)
             st.session_state['history'].append({"request": user_input, "result": result})
         except Exception as e:
@@ -470,6 +595,9 @@ def main():
                 
                 if result.get('is_mesh'):
                     # AI Mesh
+                    provider_name = result.get('provider', 'AI')
+                    st.success(f"✨ Generated with **{provider_name}**")
+                    
                     if result.get('stl_data'):
                         file_format = result.get('file_format', 'glb')
                         st.download_button(
@@ -488,13 +616,31 @@ def main():
                         components.html(preview_html, height=420, scrolling=False)
                     except: pass
                     
-                    st.download_button(
-                        label="💾 Download .scad file",
-                        data=result['scad_code'],
-                        file_name=f"model_{len(st.session_state['history']) - idx}.scad",
-                        mime="text/plain",
-                        use_container_width=True
-                    )
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.download_button(
+                            label="💾 Download .scad file",
+                            data=result['scad_code'],
+                            file_name=f"model_{len(st.session_state['history']) - idx}.scad",
+                            mime="text/plain",
+                            use_container_width=True
+                        )
+                    
+                    with col2:
+                        # Also provide as TXT for mobile viewing
+                        st.download_button(
+                            label="📱 Download as .txt (for mobile)",
+                            data=result['scad_code'],
+                            file_name=f"model_{len(st.session_state['history']) - idx}.txt",
+                            mime="text/plain",
+                            use_container_width=True
+                        )
+                    
+                    # Show code inline for mobile users
+                    with st.expander("👀 View Code (click to expand)"):
+                        st.code(result['scad_code'], language='javascript')
+                        st.info("💡 Copy this code and paste it into OpenSCAD on your computer to generate the STL file")
             else:
                 st.markdown(f"""<div class="error-box"><strong>❌ {result['message']}</strong></div>""", unsafe_allow_html=True)
             
