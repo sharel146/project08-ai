@@ -251,8 +251,11 @@ class OrganicMeshGenerator:
     def generate(self, user_request: str) -> Dict:
         enhanced_prompt = self.enhancer.enhance(user_request, "organic")
         
+        # Show enhanced prompt prominently
         if enhanced_prompt != user_request:
-            st.success(f"💡 Enhanced: \"{enhanced_prompt}\"")
+            st.info(f"🔍 **Enhanced Prompt:**\n\n*{enhanced_prompt}*")
+        else:
+            st.info(f"🔍 **Using your prompt:** {user_request}")
         
         # Select best provider
         provider = self.select_provider(enhanced_prompt)
@@ -261,10 +264,10 @@ class OrganicMeshGenerator:
             return {"success": False, "message": "⚠️ Add MESHY_API_KEY or RODIN_API_KEY to secrets", "stl_data": None}
         
         if provider == MeshProvider.MESHY:
-            st.info("🎨 Using Meshy.ai (best for realistic shapes)")
+            st.success("🎨 Generating with Meshy.ai...")
             return self._generate_with_meshy(enhanced_prompt)
         else:
-            st.info("🎨 Using Rodin AI (best for cartoon/stylized)")
+            st.success("🎨 Generating with Rodin AI...")
             return self._generate_with_rodin(enhanced_prompt)
     
     def _generate_with_meshy(self, prompt: str) -> Dict:
