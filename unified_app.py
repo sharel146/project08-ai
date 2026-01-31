@@ -85,23 +85,26 @@ class MeshyRefineGenerator:
                             "Content-Type": "application/json"
                         },
                         json={
-                            "mode": "refine",  # HIGH QUALITY MODE
+                            "mode": "refine",
                             "prompt": enhanced_prompt,
                             "art_style": "realistic",
-                            "negative_prompt": "low quality, low poly, low resolution, blurry, pixelated, disconnected parts, deformed, malformed, broken, incomplete, missing parts, abstract, cartoonish when realistic requested",
-                            "ai_model": "meshy-4",
-                            "topology": "quad",  # Better topology
-                            "target_polycount": 100000,  # High poly count
-                            "seed": None if attempt == 0 else attempt * 99999
+                            "negative_prompt": "low quality, low poly, blurry, disconnected parts, deformed, malformed, broken, incomplete, abstract",
+                            "ai_model": "meshy-4"
                         },
                         timeout=15
                     )
                     
                     if response.status_code not in [200, 202]:
+                        error_details = ""
+                        try:
+                            error_details = response.json()
+                        except:
+                            error_details = response.text
+                        
                         if attempt < max_attempts - 1:
-                            st.warning("Generation failed, retrying...")
+                            st.warning(f"Generation failed (error {response.status_code}), retrying...")
                             continue
-                        return {"success": False, "message": f"❌ API error {response.status_code}"}
+                        return {"success": False, "message": f"❌ API error {response.status_code}: {error_details}"}
                     
                     task_id = response.json().get("result") or response.json().get("id")
                     if not task_id:
