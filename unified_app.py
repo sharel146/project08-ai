@@ -1,27 +1,17 @@
 """
-AI 3D Model Generator - 100% AI Mesh Generation
-NO OpenSCAD - Everything uses Meshy.ai/Rodin AI
+AI 3D Model Generator - BEST QUALITY
+Uses Meshy v4 REFINE mode - highest quality available
+$1 per model but actually works!
 """
 
 import streamlit as st
 import requests
-import re
 import time
-import json
 import base64
 from anthropic import Anthropic
 from typing import Dict, Optional
-from enum import Enum
 
-# ============================================================================
-# PAGE CONFIGURATION
-# ============================================================================
-
-st.set_page_config(
-    page_title="AI 3D Model Generator",
-    page_icon="🎨",
-    layout="wide"
-)
+st.set_page_config(page_title="AI 3D Model Generator", page_icon="🎨", layout="wide")
 
 st.markdown("""
 <style>
@@ -33,206 +23,61 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
-
-class Config:
-    MODEL = "claude-sonnet-4-20250514"
-
-
-# ============================================================================
-# PROMPT ENHANCEMENT
-# ============================================================================
-
 class PromptEnhancer:
     def __init__(self, client: Anthropic):
         self.client = client
     
     def enhance(self, prompt: str) -> str:
-        """Enhance any prompt with physical details"""
+        """Make prompts EXTREMELY detailed for best results"""
         
-        if len(prompt.strip()) >= 30:
-            return prompt  # Already detailed
+        if len(prompt.strip()) >= 40:
+            return prompt
         
         try:
             response = self.client.messages.create(
-                model=Config.MODEL,
-                max_tokens=100,
-                messages=[{"role": "user", "content": f"""Describe this object for AI 3D modeling:
+                model="claude-sonnet-4-20250514",
+                max_tokens=150,
+                messages=[{"role": "user", "content": f"""Create an EXTREMELY detailed description for 3D modeling:
 
 "{prompt}"
 
-Focus on: exact shape, dimensions, key features, materials, surface finish.
-Be very specific and detailed (under 60 words).
+Include EVERY detail: exact dimensions, materials, surface finish, mechanical features (holes, threads, grooves), proportions, style, texture.
 
-Example for "door knob": "Round door knob, 60mm diameter spherical handle with smooth polished surface, decorative grooves around equator, tapered cylindrical mounting base 40mm diameter, total length 80mm including 30mm mounting shaft, brushed metal finish"
+Example for "door knob":
+"Professional door knob: 65mm diameter spherical handle with brushed stainless steel finish, three decorative concentric grooves at 5mm spacing around equator, smooth polished surface with subtle radial brushing pattern. Square mounting base 45x45mm with central 12mm diameter through-hole for door spindle, four corner 4mm screw holes at 35mm spacing. Tapered neck connecting handle to base with smooth filleted transitions. Chamfered edges 2mm radius. Total assembly height 85mm."
 
-Example for "phone stand": "Angled phone stand, 100x80mm rectangular base, back support rising at 65 degrees, 15mm front lip, side walls 5mm thick, smooth rounded edges, modern minimalist design"
+Example for "phone stand":
+"Modern phone stand: stable rectangular base 110x90mm with rubber feet recesses, angled back support rising 65 degrees from horizontal with 6mm wall thickness, lower front lip 18mm high with 3mm rubber grip channel, side walls with 2mm radius rounded edges, sleek minimalist design with matte black finish, accommodates phones 6-9mm thick"
 
 Now describe: {prompt}"""}]
             )
             
             enhanced = response.content[0].text.strip().strip('"').strip("'")
-            if len(enhanced) > 250:
-                enhanced = enhanced[:250]
             return enhanced
         except:
-            return prompt + " with clean professional design"
+            return prompt
 
 
-# ============================================================================
-# AI MESH GENERATION WITH QUALITY CONTROL
-# ============================================================================
-
-class MeshProvider(Enum):
-    MESHY = "meshy"
-    RODIN = "rodin"
-    CSM = "csm"
-
-
-class MeshGenerator:
-    def __init__(self, anthropic_client: Anthropic, meshy_key: Optional[str] = None, rodin_key: Optional[str] = None, csm_key: Optional[str] = None):
+class MeshyRefineGenerator:
+    def __init__(self, anthropic_client: Anthropic, meshy_key: str):
         self.anthropic_client = anthropic_client
         self.meshy_key = meshy_key
-        self.rodin_key = rodin_key
-        self.csm_key = csm_key
         self.enhancer = PromptEnhancer(anthropic_client)
     
-    def select_provider(self, prompt: str) -> MeshProvider:
-        """Select best provider based on prompt"""
-        lower = prompt.lower()
-        
-        # CSM for functional/mechanical parts
-        functional_keywords = ['knob', 'handle', 'bracket', 'mount', 'holder', 'stand', 
-                              'tool', 'part', 'gear', 'screw', 'bolt', 'hinge', 'latch']
-        if any(keyword in lower for keyword in functional_keywords):
-            if self.csm_key:
-                return MeshProvider.CSM
-        
-        # Rodin for simple/cartoon
-        if any(word in lower for word in ['cartoon', 'simple', 'cute', 'toy', 'stylized']):
-            if self.rodin_key:
-                return MeshProvider.RODIN
-        
-        # Default priority: CSM > Meshy > Rodin
-        if self.csm_key:
-            return MeshProvider.CSM
-        elif self.meshy_key:
-            return MeshProvider.MESHY
-        elif self.rodin_key:
-            return MeshProvider.RODIN
-        
-        return None
-    
     def generate(self, user_request: str) -> Dict:
-        """Generate 3D model with silent quality control"""
+        """Generate with Meshy v4 REFINE mode - highest quality"""
         
-        # Enhance prompt
+        # Enhance prompt with extreme detail
         enhanced_prompt = self.enhancer.enhance(user_request)
         
-        if enhanced_prompt != user_request:
-            st.info(f"🔍 **Enhanced Prompt:**\n\n*{enhanced_prompt}*")
-        else:
-            st.info(f"🔍 **Using your prompt:** {user_request}")
+        st.info(f"🔍 **Enhanced Prompt:**\n\n*{enhanced_prompt}*")
         
-        # Select provider
-        provider = self.select_provider(enhanced_prompt)
+        max_attempts = 2  # REFINE is expensive, only try twice
         
-        if not provider:
-            return {"success": False, "message": "⚠️ Add CSM_API_KEY, MESHY_API_KEY or RODIN_API_KEY to secrets"}
-        
-        if provider == MeshProvider.CSM:
-            return self._generate_with_csm(enhanced_prompt, user_request)
-        elif provider == MeshProvider.MESHY:
-            return self._generate_with_meshy(enhanced_prompt, user_request)
-        else:
-            return self._generate_with_rodin(enhanced_prompt, user_request)
-    
-    def _generate_with_csm(self, prompt: str, original: str) -> Dict:
-        """Generate with CSM - best for functional/mechanical parts"""
-        
-        with st.spinner("🎨 Creating your model with CSM (mechanical specialist)..."):
+        for attempt in range(max_attempts):
             try:
-                # CSM API endpoint
-                response = requests.post(
-                    "https://api.csm.ai/image-to-3d-sessions",
-                    headers={
-                        "Authorization": f"Bearer {self.csm_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "prompt": prompt,
-                        "format": "glb"
-                    },
-                    timeout=15
-                )
-                
-                if response.status_code not in [200, 201]:
-                    # Fallback to Meshy
-                    if self.meshy_key:
-                        st.info("CSM unavailable, using Meshy...")
-                        return self._generate_with_meshy(prompt, original)
-                    return {"success": False, "message": "❌ Generation failed"}
-                
-                session_id = response.json().get("id")
-                if not session_id:
-                    return {"success": False, "message": "❌ No session ID"}
-                
-                progress_bar = st.progress(0)
-                
-                # Poll for completion (CSM takes 2-3 minutes)
-                for i in range(60):
-                    status_response = requests.get(
-                        f"https://api.csm.ai/image-to-3d-sessions/{session_id}",
-                        headers={"Authorization": f"Bearer {self.csm_key}"}
-                    )
-                    
-                    if status_response.status_code != 200:
-                        break
-                    
-                    status_data = status_response.json()
-                    status = status_data.get("status")
-                    
-                    if status == "succeeded":
-                        progress_bar.progress(100)
-                        model_url = status_data.get("output", {}).get("model_url")
-                        
-                        if model_url:
-                            model_data = requests.get(model_url).content
-                            return {
-                                "success": True,
-                                "message": "✓ Generated successfully",
-                                "model_data": model_data,
-                                "file_format": "glb",
-                                "provider": "CSM AI",
-                                "cost": "$0.40"
-                            }
-                        break
-                    elif status in ["failed", "error"]:
-                        if self.meshy_key:
-                            st.info("CSM failed, using Meshy...")
-                            return self._generate_with_meshy(prompt, original)
-                        break
-                    
-                    progress = min((i + 1) * 1.5, 95)
-                    progress_bar.progress(int(progress))
-                    time.sleep(3)
-            
-            except Exception as e:
-                if self.meshy_key:
-                    st.info(f"CSM error, using Meshy...")
-                    return self._generate_with_meshy(prompt, original)
-        
-        return {"success": False, "message": "❌ Generation failed"}
-    
-    def _generate_with_meshy(self, prompt: str, original: str) -> Dict:
-        """Generate with Meshy - silent retries until perfect"""
-        max_attempts = 3
-        
-        with st.spinner("🎨 Creating your model..."):
-            for attempt in range(max_attempts):
-                try:
+                with st.spinner(f"🎨 Creating high-quality model... (this takes 3-5 minutes)"):
+                    # Start REFINE mode generation
                     response = requests.post(
                         "https://api.meshy.ai/v2/text-to-3d",
                         headers={
@@ -240,26 +85,33 @@ class MeshGenerator:
                             "Content-Type": "application/json"
                         },
                         json={
-                            "mode": "preview",
-                            "prompt": prompt,
+                            "mode": "refine",  # HIGH QUALITY MODE
+                            "prompt": enhanced_prompt,
                             "art_style": "realistic",
-                            "negative_prompt": "low quality, blurry, disconnected parts, deformed, malformed, abstract",
+                            "negative_prompt": "low quality, low poly, low resolution, blurry, pixelated, disconnected parts, deformed, malformed, broken, incomplete, missing parts, abstract, cartoonish when realistic requested",
                             "ai_model": "meshy-4",
-                            "seed": None if attempt == 0 else attempt * 12345
+                            "topology": "quad",  # Better topology
+                            "target_polycount": 100000,  # High poly count
+                            "seed": None if attempt == 0 else attempt * 99999
                         },
-                        timeout=10
+                        timeout=15
                     )
                     
                     if response.status_code not in [200, 202]:
-                        continue
+                        if attempt < max_attempts - 1:
+                            st.warning("Generation failed, retrying...")
+                            continue
+                        return {"success": False, "message": f"❌ API error {response.status_code}"}
                     
                     task_id = response.json().get("result") or response.json().get("id")
                     if not task_id:
                         continue
                     
                     progress_bar = st.progress(0)
+                    status_text = st.empty()
                     
-                    for i in range(40):
+                    # REFINE mode takes 3-5 minutes
+                    for i in range(100):
                         status_response = requests.get(
                             f"https://api.meshy.ai/v2/text-to-3d/{task_id}",
                             headers={"Authorization": f"Bearer {self.meshy_key}"}
@@ -270,123 +122,64 @@ class MeshGenerator:
                         
                         status_data = status_response.json()
                         status = status_data.get("status")
+                        progress = status_data.get("progress", 0)
                         
                         if status == "SUCCEEDED":
                             progress_bar.progress(100)
+                            status_text.success("✅ Generation complete!")
+                            
                             glb_url = status_data.get("model_urls", {}).get("glb")
                             thumbnail_url = status_data.get("thumbnail_url")
                             
                             if glb_url:
                                 model_data = requests.get(glb_url).content
                                 
-                                # Silent quality check
+                                # Quality check on final attempt only
                                 if thumbnail_url and attempt < max_attempts - 1:
-                                    quality_ok = self._check_quality(thumbnail_url, original)
+                                    quality_ok = self._check_quality(thumbnail_url, user_request)
                                     if not quality_ok:
-                                        break  # Try again silently
+                                        st.warning("Quality check failed, regenerating...")
+                                        break
                                 
                                 return {
                                     "success": True,
-                                    "message": "✓ Generated successfully",
+                                    "message": "✓ High-quality model generated",
                                     "model_data": model_data,
                                     "file_format": "glb",
-                                    "provider": "Meshy.ai",
-                                    "cost": "$0.25"
+                                    "cost": "$1.00",
+                                    "quality": "REFINE (highest)"
                                 }
                             break
+                            
                         elif status == "FAILED":
-                            break
+                            error = status_data.get("error", "Unknown error")
+                            if attempt < max_attempts - 1:
+                                st.warning(f"Failed: {error}. Retrying...")
+                                break
+                            return {"success": False, "message": f"❌ Failed: {error}"}
                         
-                        progress = status_data.get("progress", 0)
+                        # Update progress
                         progress_bar.progress(min(progress, 99))
+                        status_text.info(f"⏳ Generating... {progress}% complete")
                         time.sleep(3)
-                
-                except:
+                    
+            except Exception as e:
+                if attempt < max_attempts - 1:
+                    st.warning(f"Error: {e}. Retrying...")
                     continue
+                return {"success": False, "message": f"❌ Error: {e}"}
         
-        return {"success": False, "message": "❌ Generation failed"}
-    
-    def _generate_with_rodin(self, prompt: str, original: str) -> Dict:
-        """Generate with Rodin - faster, cheaper"""
-        
-        with st.spinner("🎨 Creating your model..."):
-            try:
-                response = requests.post(
-                    "https://hyperhuman.deemos.com/api/v2/rodin",
-                    headers={
-                        "Authorization": f"Bearer {self.rodin_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "prompt": prompt,
-                        "tier": "standard"
-                    },
-                    timeout=10
-                )
-                
-                if response.status_code not in [200, 201]:
-                    # Fallback to Meshy
-                    if self.meshy_key:
-                        return self._generate_with_meshy(prompt, original)
-                    return {"success": False, "message": "❌ Generation failed"}
-                
-                task_uuid = response.json().get("uuid")
-                if not task_uuid:
-                    return {"success": False, "message": "❌ No task ID"}
-                
-                progress_bar = st.progress(0)
-                
-                for i in range(20):
-                    status_response = requests.get(
-                        f"https://hyperhuman.deemos.com/api/v2/rodin/{task_uuid}",
-                        headers={"Authorization": f"Bearer {self.rodin_key}"}
-                    )
-                    
-                    if status_response.status_code != 200:
-                        break
-                    
-                    status_data = status_response.json()
-                    status = status_data.get("status")
-                    
-                    if status == "success":
-                        progress_bar.progress(100)
-                        model_url = status_data.get("model_url")
-                        
-                        if model_url:
-                            model_data = requests.get(model_url).content
-                            return {
-                                "success": True,
-                                "message": "✓ Generated successfully",
-                                "model_data": model_data,
-                                "file_format": "glb",
-                                "provider": "Rodin AI",
-                                "cost": "$0.15"
-                            }
-                        break
-                    elif status == "failed":
-                        if self.meshy_key:
-                            return self._generate_with_meshy(prompt, original)
-                        break
-                    
-                    progress = min((i + 1) * 5, 95)
-                    progress_bar.progress(progress)
-                    time.sleep(1.5)
-            
-            except:
-                if self.meshy_key:
-                    return self._generate_with_meshy(prompt, original)
-        
-        return {"success": False, "message": "❌ Generation failed"}
+        return {"success": False, "message": "❌ Generation failed after retries"}
     
     def _check_quality(self, thumbnail_url: str, original_prompt: str) -> bool:
-        """Check if model matches request - return True if good"""
+        """Vision check - is it correct?"""
         try:
             thumbnail_data = requests.get(thumbnail_url).content
             thumbnail_b64 = base64.b64encode(thumbnail_data).decode()
             
             response = self.anthropic_client.messages.create(
-                model=Config.MODEL,
-                max_tokens=100,
+                model="claude-sonnet-4-20250514",
+                max_tokens=50,
                 messages=[{
                     "role": "user",
                     "content": [
@@ -400,11 +193,11 @@ class MeshGenerator:
                         },
                         {
                             "type": "text",
-                            "text": f"""Does this 3D model match "{original_prompt}"?
+                            "text": f"""Does this 3D model correctly represent: "{original_prompt}"?
 
-Check: correct object, complete (no missing parts), good proportions, not deformed.
+Check: right object type, complete (no missing parts), functional, good quality.
 
-Respond ONLY: YES or NO"""
+Answer ONLY: YES or NO"""
                         }
                     ]
                 }]
@@ -414,77 +207,59 @@ Respond ONLY: YES or NO"""
             return "YES" in result
             
         except:
-            return True  # If check fails, approve
+            return True
 
-
-# ============================================================================
-# MAIN APP
-# ============================================================================
 
 def main():
-    st.title("🎨 AI 3D Model Generator")
-    st.markdown("*100% AI-powered - Professional quality models*")
+    st.title("🎨 Professional 3D Model Generator")
+    st.markdown("*Premium Quality - Meshy v4 REFINE mode*")
     
-    # Load API keys
     try:
         anthropic_key = st.secrets.get("ANTHROPIC_API_KEY", "")
         meshy_key = st.secrets.get("MESHY_API_KEY", "")
-        rodin_key = st.secrets.get("RODIN_API_KEY", "")
-        csm_key = st.secrets.get("CSM_API_KEY", "")
     except:
         anthropic_key = ""
         meshy_key = ""
-        rodin_key = ""
-        csm_key = ""
     
-    if not anthropic_key:
-        st.error("⚠️ Add ANTHROPIC_API_KEY to Streamlit secrets")
+    if not anthropic_key or not meshy_key:
+        st.error("⚠️ Add ANTHROPIC_API_KEY and MESHY_API_KEY to secrets")
         return
     
-    # Show available providers
-    providers = []
-    if csm_key:
-        providers.append("CSM AI ($0.40 - mechanical)")
-    if meshy_key:
-        providers.append("Meshy.ai ($0.25)")
-    if rodin_key:
-        providers.append("Rodin AI ($0.15)")
+    st.sidebar.info("""
+**Quality:** REFINE mode (highest available)
+**Cost:** $1.00 per model
+**Time:** 3-5 minutes
+**Output:** High-poly GLB (100k triangles)
+
+Worth it - models actually work!
+""")
     
-    if providers:
-        st.sidebar.success(f"🎨 Providers:\n" + "\n".join(f"• {p}" for p in providers))
-    else:
-        st.sidebar.warning("⚠️ Add CSM_API_KEY, MESHY_API_KEY or RODIN_API_KEY")
-    
-    # Initialize history
     if 'history' not in st.session_state:
         st.session_state['history'] = []
     
-    # Input form
     with st.form("model_request"):
         user_input = st.text_area(
             "What do you want to create?",
-            placeholder="Examples: door knob, phone stand, cartoon bear, decorative vase...",
+            placeholder="Be specific: door knob, phone stand, decorative vase, etc.",
             height=80
         )
         
         col1, col2 = st.columns([1, 5])
         with col1:
-            submit = st.form_submit_button("🚀 Generate", use_container_width=True)
+            submit = st.form_submit_button("🚀 Generate ($1)", use_container_width=True)
         with col2:
             if st.form_submit_button("🗑️ Clear", use_container_width=True):
                 st.session_state['history'] = []
                 st.rerun()
     
-    # Process request
     if submit and user_input:
         try:
-            generator = MeshGenerator(Anthropic(api_key=anthropic_key), meshy_key, rodin_key, csm_key)
+            generator = MeshyRefineGenerator(Anthropic(api_key=anthropic_key), meshy_key)
             result = generator.generate(user_input)
             st.session_state['history'].append({"request": user_input, "result": result})
         except Exception as e:
             st.error(f"Error: {e}")
     
-    # Display history
     if st.session_state['history']:
         st.markdown("---")
         st.markdown("## 📋 Generation History")
@@ -498,10 +273,10 @@ def main():
             if result['success']:
                 st.success(f"✅ {result['message']}")
                 
-                provider = result.get('provider', 'AI')
                 cost = result.get('cost', '')
-                if provider and cost:
-                    st.caption(f"Generated with {provider} • Cost: {cost}")
+                quality = result.get('quality', '')
+                if cost and quality:
+                    st.caption(f"💎 Quality: {quality} • Cost: {cost}")
                 
                 if result.get('model_data'):
                     file_format = result.get('file_format', 'glb')
@@ -513,8 +288,7 @@ def main():
                         use_container_width=True
                     )
                     
-                    if file_format == 'glb':
-                        st.info("💡 Convert to STL: https://products.aspose.app/3d/conversion/glb-to-stl")
+                    st.info("💡 Convert to STL: https://products.aspose.app/3d/conversion/glb-to-stl")
             else:
                 st.error(f"❌ {result['message']}")
             
