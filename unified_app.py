@@ -1,18 +1,16 @@
 """
-3D Model Generator - Standalone Version
-AI-powered 3D model generation with OpenSCAD and Meshy.ai
+AI 3D Model Generator - 100% AI Mesh Generation
+NO OpenSCAD - Everything uses Meshy.ai/Rodin AI
 """
 
 import streamlit as st
-import streamlit.components.v1 as components
 import requests
-import subprocess
 import re
-import os
 import time
 import json
+import base64
 from anthropic import Anthropic
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, Optional
 from enum import Enum
 
 # ============================================================================
@@ -31,149 +29,16 @@ st.markdown("""
         background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
         color: #fff;
     }
-    .success-box {
-        background: rgba(0, 255, 127, 0.1);
-        border: 1px solid rgba(0, 255, 127, 0.3);
-        border-radius: 8px;
-        padding: 15px;
-        margin: 10px 0;
-    }
-    .error-box {
-        background: rgba(255, 0, 0, 0.1);
-        border: 1px solid rgba(255, 0, 0, 0.3);
-        border-radius: 8px;
-        padding: 15px;
-        margin: 10px 0;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ============================================================================
-# 3D PREVIEW GENERATOR
+# CONFIGURATION
 # ============================================================================
 
-def parse_openscad_to_threejs(scad_code: str) -> List[Dict[str, Any]]:
-    """Parse OpenSCAD code and extract primitives"""
-    objects = []
-    code = re.sub(r'//.*', '', scad_code)
-    code = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
-    
-    # Cubes with translate
-    for match in re.finditer(r'translate\s*\(\s*\[([^\]]+)\]\s*\)[^c]*cube\s*\(\s*\[([^\]]+)\]', code):
-        try:
-            pos = [float(x.strip()) for x in match.group(1).split(',')]
-            size = [float(x.strip()) for x in match.group(2).split(',')]
-            objects.append({'type': 'cube', 'size': size, 'position': pos})
-        except: pass
-    
-    # Standalone cubes
-    for match in re.finditer(r'cube\s*\(\s*\[([^\]]+)\]', code):
-        try:
-            size = [float(x.strip()) for x in match.group(1).split(',')]
-            if not any(obj['type'] == 'cube' and obj['size'] == size for obj in objects):
-                objects.append({'type': 'cube', 'size': size, 'position': [0, 0, 0]})
-        except: pass
-    
-    # Cylinders and cones
-    for match in re.finditer(r'cylinder\s*\([^)]*h\s*=\s*([\d.]+)[^)]*r1\s*=\s*([\d.]+)[^)]*r2\s*=\s*([\d.]+)', code):
-        try:
-            h, r1, r2 = float(match.group(1)), float(match.group(2)), float(match.group(3))
-            objects.append({'type': 'cone', 'height': h, 'radiusTop': r1, 'radiusBottom': r2, 'position': [0, 0, 0]})
-        except: pass
-    
-    return objects if objects else [{'type': 'cube', 'size': [50, 50, 50], 'position': [0, 0, 0]}]
-
-
-def generate_threejs_html(scad_code: str, height: int = 400) -> str:
-    """Generate HTML with Three.js viewer"""
-    objects = parse_openscad_to_threejs(scad_code)
-    
-    return f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <style>
-        body {{ margin: 0; overflow: hidden; background: linear-gradient(135deg, #1a1a2e, #16213e); }}
-        #viewer {{ width: 100%; height: {height}px; }}
-    </style>
-</head>
-<body>
-    <div id="viewer"></div>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script>
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x16213e);
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / {height}, 0.1, 10000);
-        const renderer = new THREE.WebGLRenderer({{ antialias: true }});
-        renderer.setSize(window.innerWidth, {height});
-        document.getElementById('viewer').appendChild(renderer.domElement);
-        
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-        scene.add(ambientLight);
-        const light1 = new THREE.DirectionalLight(0xffffff, 0.8);
-        light1.position.set(5, 10, 7);
-        scene.add(light1);
-        
-        const material = new THREE.MeshPhongMaterial({{ color: 0x00d2ff }});
-        const modelGroup = new THREE.Group();
-        const objects = {objects};
-        
-        objects.forEach(obj => {{
-            let mesh;
-            if (obj.type === 'cube') {{
-                const geometry = new THREE.BoxGeometry(obj.size[0], obj.size[2], obj.size[1]);
-                mesh = new THREE.Mesh(geometry, material);
-                mesh.position.set(obj.position[0] + obj.size[0]/2, obj.position[2] + obj.size[2]/2, obj.position[1] + obj.size[1]/2);
-            }} else if (obj.type === 'cone') {{
-                const geometry = new THREE.CylinderGeometry(obj.radiusTop, obj.radiusBottom, obj.height, 32);
-                mesh = new THREE.Mesh(geometry, material);
-                mesh.position.set(0, obj.height/2, 0);
-            }}
-            if (mesh) modelGroup.add(mesh);
-        }});
-        
-        scene.add(modelGroup);
-        
-        const box = new THREE.Box3().setFromObject(modelGroup);
-        const center = box.getCenter(new THREE.Vector3());
-        const size = box.getSize(new THREE.Vector3());
-        const maxDim = Math.max(size.x, size.y, size.z);
-        camera.position.set(maxDim * 1.5, maxDim, maxDim * 1.5);
-        camera.lookAt(center);
-        
-        let isDragging = false;
-        let previousMousePosition = {{ x: 0, y: 0 }};
-        
-        renderer.domElement.addEventListener('mousedown', (e) => {{
-            isDragging = true;
-            previousMousePosition = {{ x: e.clientX, y: e.clientY }};
-        }});
-        
-        renderer.domElement.addEventListener('mousemove', (e) => {{
-            if (isDragging) {{
-                modelGroup.rotation.y += (e.clientX - previousMousePosition.x) * 0.01;
-                modelGroup.rotation.x += (e.clientY - previousMousePosition.y) * 0.01;
-                previousMousePosition = {{ x: e.clientX, y: e.clientY }};
-            }}
-        }});
-        
-        renderer.domElement.addEventListener('mouseup', () => {{ isDragging = false; }});
-        renderer.domElement.addEventListener('wheel', (e) => {{
-            e.preventDefault();
-            camera.position.multiplyScalar(e.deltaY > 0 ? 1.1 : 0.9);
-        }});
-        
-        function animate() {{
-            requestAnimationFrame(animate);
-            if (!isDragging) modelGroup.rotation.y += 0.005;
-            renderer.render(scene, camera);
-        }}
-        animate();
-    </script>
-</body>
-</html>
-"""
+class Config:
+    MODEL = "claude-sonnet-4-20250514"
 
 
 # ============================================================================
@@ -184,61 +49,40 @@ class PromptEnhancer:
     def __init__(self, client: Anthropic):
         self.client = client
     
-    def enhance(self, prompt: str, type_hint: str) -> str:
-        # Always enhance if prompt is short
+    def enhance(self, prompt: str) -> str:
+        """Enhance any prompt with physical details"""
         
-        if len(prompt.strip()) >= 20:
-            return prompt  # Already detailed enough
+        if len(prompt.strip()) >= 30:
+            return prompt  # Already detailed
         
         try:
-            if type_hint == "functional":
-                # Enhance functional parts with VERY specific technical details
-                response = self.client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=100,
-                    messages=[{"role": "user", "content": f"""Describe this 3D object with VERY specific details for accurate modeling:
+            response = self.client.messages.create(
+                model=Config.MODEL,
+                max_tokens=100,
+                messages=[{"role": "user", "content": f"""Describe this object for AI 3D modeling:
 
 "{prompt}"
 
-Include: exact shape, dimensions, proportions, angles, thickness, and distinctive features.
-Be extremely specific and technical (under 60 words).
+Focus on: exact shape, dimensions, key features, materials, surface finish.
+Be very specific and detailed (under 60 words).
 
-Example for "bracket": "L-shaped steel bracket with precise 90-degree angle, flat horizontal base 50x50mm with two 5mm mounting holes spaced 40mm apart, vertical arm 50x40mm with single centered 5mm hole, uniform 3mm wall thickness throughout, rounded 2mm edge fillets"
+Example for "door knob": "Round door knob, 60mm diameter spherical handle with smooth polished surface, decorative grooves around equator, tapered cylindrical mounting base 40mm diameter, total length 80mm including 30mm mounting shaft, brushed metal finish"
 
-Example for "phone stand": "Phone holder with stable 100x80mm rectangular base, angled back support rising at exactly 65 degrees from base, lower front lip 15mm high to prevent sliding, side walls 5mm thick, smooth 3mm radius on all edges"
-
-Example for "ping pong paddle": "Table tennis paddle with flat circular blade 150mm diameter and 6mm thickness, straight cylindrical handle 100mm long and 25mm diameter extending from blade center, flared grip at handle end, smooth transitions"
+Example for "phone stand": "Angled phone stand, 100x80mm rectangular base, back support rising at 65 degrees, 15mm front lip, side walls 5mm thick, smooth rounded edges, modern minimalist design"
 
 Now describe: {prompt}"""}]
-                )
-            else:
-                # Enhance organic shapes with physical descriptions
-                response = self.client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=80,
-                    messages=[{"role": "user", "content": f"""Describe what a {prompt} LOOKS LIKE physically for 3D modeling.
-
-Focus on: shape, proportions, key features, pose/position.
-Be specific but concise (under 40 words).
-Don't use artistic language - just describe the physical form.
-
-Example for "dog": "four-legged canine, medium sized, sitting pose, pointed ears, tail curved to side, distinct snout"
-
-Example for "vase": "cylindrical container, narrow base widening to middle then narrowing at top, smooth curved surface"
-
-Now describe: {prompt}"""}]
-                )
+            )
             
             enhanced = response.content[0].text.strip().strip('"').strip("'")
             if len(enhanced) > 250:
                 enhanced = enhanced[:250]
             return enhanced
         except:
-            return prompt
+            return prompt + " with clean professional design"
 
 
 # ============================================================================
-# AI MESH GENERATION (Multi-Provider)
+# AI MESH GENERATION WITH QUALITY CONTROL
 # ============================================================================
 
 class MeshProvider(Enum):
@@ -246,7 +90,7 @@ class MeshProvider(Enum):
     RODIN = "rodin"
 
 
-class OrganicMeshGenerator:
+class MeshGenerator:
     def __init__(self, anthropic_client: Anthropic, meshy_key: Optional[str] = None, rodin_key: Optional[str] = None):
         self.anthropic_client = anthropic_client
         self.meshy_key = meshy_key
@@ -254,16 +98,15 @@ class OrganicMeshGenerator:
         self.enhancer = PromptEnhancer(anthropic_client)
     
     def select_provider(self, prompt: str) -> MeshProvider:
-        """Smart provider selection based on prompt"""
+        """Select best provider based on prompt"""
         lower = prompt.lower()
         
-        # Rodin is better for: cartoons, stylized, simple characters
-        if any(word in lower for word in ['cartoon', 'stylized', 'simple', 'cute', 'toy']):
+        # Rodin for simple/cartoon
+        if any(word in lower for word in ['cartoon', 'simple', 'cute', 'toy', 'stylized']):
             if self.rodin_key:
                 return MeshProvider.RODIN
         
-        # Meshy is better for: realistic, detailed, complex
-        # Default to Meshy if available, otherwise Rodin
+        # Default to Meshy
         if self.meshy_key:
             return MeshProvider.MESHY
         elif self.rodin_key:
@@ -272,62 +115,141 @@ class OrganicMeshGenerator:
         return None
     
     def generate(self, user_request: str) -> Dict:
-        enhanced_prompt = self.enhancer.enhance(user_request, "organic")
+        """Generate 3D model with silent quality control"""
         
-        # Show enhanced prompt prominently
+        # Enhance prompt
+        enhanced_prompt = self.enhancer.enhance(user_request)
+        
         if enhanced_prompt != user_request:
             st.info(f"🔍 **Enhanced Prompt:**\n\n*{enhanced_prompt}*")
         else:
             st.info(f"🔍 **Using your prompt:** {user_request}")
         
-        # Select best provider
+        # Select provider
         provider = self.select_provider(enhanced_prompt)
         
         if not provider:
-            return {"success": False, "message": "⚠️ Add MESHY_API_KEY or RODIN_API_KEY to secrets", "stl_data": None}
+            return {"success": False, "message": "⚠️ Add MESHY_API_KEY or RODIN_API_KEY to secrets"}
         
         if provider == MeshProvider.MESHY:
-            st.success("🎨 Generating with Meshy.ai...")
-            return self._generate_with_meshy(enhanced_prompt)
+            return self._generate_with_meshy(enhanced_prompt, user_request)
         else:
-            st.success("🎨 Generating with Rodin AI...")
-            return self._generate_with_rodin(enhanced_prompt)
+            return self._generate_with_rodin(enhanced_prompt, user_request)
     
-    def _generate_with_meshy(self, prompt: str) -> Dict:
-        """Generate using Meshy.ai - silently retry until perfect"""
+    def _generate_with_meshy(self, prompt: str, original: str) -> Dict:
+        """Generate with Meshy - silent retries until perfect"""
         max_attempts = 3
         
-        # Single progress message
-        progress_placeholder = st.empty()
-        progress_bar = st.progress(0)
+        with st.spinner("🎨 Creating your model..."):
+            for attempt in range(max_attempts):
+                try:
+                    response = requests.post(
+                        "https://api.meshy.ai/v2/text-to-3d",
+                        headers={
+                            "Authorization": f"Bearer {self.meshy_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "mode": "preview",
+                            "prompt": prompt,
+                            "art_style": "realistic",
+                            "negative_prompt": "low quality, blurry, disconnected parts, deformed, malformed, abstract",
+                            "ai_model": "meshy-4",
+                            "seed": None if attempt == 0 else attempt * 12345
+                        },
+                        timeout=10
+                    )
+                    
+                    if response.status_code not in [200, 202]:
+                        continue
+                    
+                    task_id = response.json().get("result") or response.json().get("id")
+                    if not task_id:
+                        continue
+                    
+                    progress_bar = st.progress(0)
+                    
+                    for i in range(40):
+                        status_response = requests.get(
+                            f"https://api.meshy.ai/v2/text-to-3d/{task_id}",
+                            headers={"Authorization": f"Bearer {self.meshy_key}"}
+                        )
+                        
+                        if status_response.status_code != 200:
+                            break
+                        
+                        status_data = status_response.json()
+                        status = status_data.get("status")
+                        
+                        if status == "SUCCEEDED":
+                            progress_bar.progress(100)
+                            glb_url = status_data.get("model_urls", {}).get("glb")
+                            thumbnail_url = status_data.get("thumbnail_url")
+                            
+                            if glb_url:
+                                model_data = requests.get(glb_url).content
+                                
+                                # Silent quality check
+                                if thumbnail_url and attempt < max_attempts - 1:
+                                    quality_ok = self._check_quality(thumbnail_url, original)
+                                    if not quality_ok:
+                                        break  # Try again silently
+                                
+                                return {
+                                    "success": True,
+                                    "message": "✓ Generated successfully",
+                                    "model_data": model_data,
+                                    "file_format": "glb",
+                                    "provider": "Meshy.ai",
+                                    "cost": "$0.25"
+                                }
+                            break
+                        elif status == "FAILED":
+                            break
+                        
+                        progress = status_data.get("progress", 0)
+                        progress_bar.progress(min(progress, 99))
+                        time.sleep(3)
+                
+                except:
+                    continue
         
-        for attempt in range(max_attempts):
+        return {"success": False, "message": "❌ Generation failed"}
+    
+    def _generate_with_rodin(self, prompt: str, original: str) -> Dict:
+        """Generate with Rodin - faster, cheaper"""
+        
+        with st.spinner("🎨 Creating your model..."):
             try:
                 response = requests.post(
-                    "https://api.meshy.ai/v2/text-to-3d",
-                    headers={"Authorization": f"Bearer {self.meshy_key}", "Content-Type": "application/json"},
+                    "https://hyperhuman.deemos.com/api/v2/rodin",
+                    headers={
+                        "Authorization": f"Bearer {self.rodin_key}",
+                        "Content-Type": "application/json"
+                    },
                     json={
-                        "mode": "preview",
                         "prompt": prompt,
-                        "art_style": "sculpture",
-                        "negative_prompt": "low quality, blurry, disconnected parts, abstract, deformed, malformed",
-                        "ai_model": "meshy-4",
-                        "seed": None if attempt == 0 else attempt * 12345
+                        "tier": "standard"
                     },
                     timeout=10
                 )
                 
-                if response.status_code not in [200, 202]:
-                    continue
+                if response.status_code not in [200, 201]:
+                    # Fallback to Meshy
+                    if self.meshy_key:
+                        return self._generate_with_meshy(prompt, original)
+                    return {"success": False, "message": "❌ Generation failed"}
                 
-                task_id = response.json().get("result") or response.json().get("id")
-                if not task_id:
-                    continue
+                task_uuid = response.json().get("uuid")
+                if not task_uuid:
+                    return {"success": False, "message": "❌ No task ID"}
                 
-                for i in range(40):
+                progress_bar = st.progress(0)
+                
+                for i in range(20):
                     status_response = requests.get(
-                        f"https://api.meshy.ai/v2/text-to-3d/{task_id}",
-                        headers={"Authorization": f"Bearer {self.meshy_key}"}
+                        f"https://hyperhuman.deemos.com/api/v2/rodin/{task_uuid}",
+                        headers={"Authorization": f"Bearer {self.rodin_key}"}
                     )
                     
                     if status_response.status_code != 200:
@@ -336,60 +258,45 @@ class OrganicMeshGenerator:
                     status_data = status_response.json()
                     status = status_data.get("status")
                     
-                    if status == "SUCCEEDED":
+                    if status == "success":
                         progress_bar.progress(100)
-                        glb_url = status_data.get("model_urls", {}).get("glb")
-                        thumbnail_url = status_data.get("thumbnail_url")
+                        model_url = status_data.get("model_url")
                         
-                        if glb_url:
-                            model_data = requests.get(glb_url).content
-                            
-                            # SILENT quality check
-                            if thumbnail_url and attempt < max_attempts - 1:
-                                quality_check = self._check_model_quality(thumbnail_url, prompt)
-                                
-                                if not quality_check["approved"]:
-                                    # Silently try again
-                                    progress_placeholder.empty()
-                                    progress_bar.empty()
-                                    progress_placeholder = st.empty()
-                                    progress_bar = st.progress(0)
-                                    break
-                            
-                            # PERFECT! Deliver it
+                        if model_url:
+                            model_data = requests.get(model_url).content
                             return {
                                 "success": True,
                                 "message": "✓ Generated successfully",
-                                "stl_data": model_data,
+                                "model_data": model_data,
                                 "file_format": "glb",
-                                "provider": "Meshy.ai"
+                                "provider": "Rodin AI",
+                                "cost": "$0.15"
                             }
-                        else:
-                            break
-                            
-                    elif status == "FAILED":
+                        break
+                    elif status == "failed":
+                        if self.meshy_key:
+                            return self._generate_with_meshy(prompt, original)
                         break
                     
-                    progress = status_data.get("progress", 0)
-                    progress_bar.progress(min(progress, 99))
-                    time.sleep(3)
-                
-            except Exception as e:
-                continue
+                    progress = min((i + 1) * 5, 95)
+                    progress_bar.progress(progress)
+                    time.sleep(1.5)
+            
+            except:
+                if self.meshy_key:
+                    return self._generate_with_meshy(prompt, original)
         
-        return {"success": False, "message": f"❌ Generation failed", "stl_data": None}
+        return {"success": False, "message": "❌ Generation failed"}
     
-    def _check_model_quality(self, thumbnail_url: str, original_prompt: str) -> Dict:
-        """Use Claude to check if the generated model matches the request"""
+    def _check_quality(self, thumbnail_url: str, original_prompt: str) -> bool:
+        """Check if model matches request - return True if good"""
         try:
-            # Download thumbnail
             thumbnail_data = requests.get(thumbnail_url).content
-            import base64
             thumbnail_b64 = base64.b64encode(thumbnail_data).decode()
             
             response = self.anthropic_client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=150,
+                model=Config.MODEL,
+                max_tokens=100,
                 messages=[{
                     "role": "user",
                     "content": [
@@ -403,344 +310,21 @@ class OrganicMeshGenerator:
                         },
                         {
                             "type": "text",
-                            "text": f"""Look at this 3D model. The user requested: "{original_prompt}"
+                            "text": f"""Does this 3D model match "{original_prompt}"?
 
-Does this model match what was requested? Check:
-1. Correct object type (is it actually a {original_prompt}?)
-2. Correct number of parts (legs, arms, etc.)
-3. Reasonable proportions
-4. Not abstract/deformed/broken
+Check: correct object, complete (no missing parts), good proportions, not deformed.
 
-Respond with JSON only:
-{{"approved": true/false, "reason": "brief explanation"}}"""
+Respond ONLY: YES or NO"""
                         }
                     ]
                 }]
             )
             
-            result_text = response.content[0].text.strip()
-            # Extract JSON from response
-            import json
-            result = json.loads(result_text)
-            return result
+            result = response.content[0].text.strip().upper()
+            return "YES" in result
             
-        except Exception as e:
-            # If quality check fails, approve by default
-            return {"approved": True, "reason": "Quality check unavailable"}
-    
-    
-    def _generate_with_rodin(self, prompt: str) -> Dict:
-        """Generate using Rodin AI - faster, good for cartoons"""
-        try:
-            response = requests.post(
-                "https://hyperhuman.deemos.com/api/v2/rodin",
-                headers={
-                    "Authorization": f"Bearer {self.rodin_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "prompt": prompt,
-                    "tier": "standard"  # Fast generation
-                },
-                timeout=10
-            )
-            
-            if response.status_code not in [200, 201]:
-                # If Rodin fails, fallback to Meshy if available
-                if self.meshy_key:
-                    st.warning("⚠️ Rodin failed, trying Meshy.ai...")
-                    return self._generate_with_meshy(prompt)
-                return {"success": False, "message": f"❌ API error {response.status_code}", "stl_data": None}
-            
-            task_uuid = response.json().get("uuid")
-            if not task_uuid:
-                return {"success": False, "message": "❌ No task ID", "stl_data": None}
-            
-            progress_bar = st.progress(0)
-            
-            # Rodin is usually faster - 30 second timeout
-            for i in range(20):
-                status_response = requests.get(
-                    f"https://hyperhuman.deemos.com/api/v2/rodin/{task_uuid}",
-                    headers={"Authorization": f"Bearer {self.rodin_key}"}
-                )
-                
-                if status_response.status_code != 200:
-                    return {"success": False, "message": "❌ Status check failed", "stl_data": None}
-                
-                status_data = status_response.json()
-                status = status_data.get("status")
-                
-                if status == "success":
-                    progress_bar.progress(100)
-                    model_url = status_data.get("model_url")
-                    
-                    if model_url:
-                        model_data = requests.get(model_url).content
-                        return {
-                            "success": True,
-                            "message": "✓ Generated with Rodin AI ($0.15)",
-                            "stl_data": model_data,
-                            "file_format": "glb",
-                            "provider": "Rodin AI"
-                        }
-                    else:
-                        return {"success": False, "message": "❌ No model file", "stl_data": None}
-                        
-                elif status == "failed":
-                    # Fallback to Meshy if available
-                    if self.meshy_key:
-                        st.warning("⚠️ Rodin failed, trying Meshy.ai...")
-                        return self._generate_with_meshy(prompt)
-                    return {"success": False, "message": "❌ Generation failed", "stl_data": None}
-                
-                progress = min((i + 1) * 5, 95)  # Estimate progress
-                progress_bar.progress(progress)
-                time.sleep(1.5)  # Rodin is faster, check more frequently
-            
-            return {"success": False, "message": "❌ Timeout", "stl_data": None}
-            
-        except Exception as e:
-            # Fallback to Meshy on any error
-            if self.meshy_key:
-                st.warning(f"⚠️ Rodin error: {e}. Trying Meshy.ai...")
-                return self._generate_with_meshy(prompt)
-            return {"success": False, "message": f"❌ Error: {e}", "stl_data": None}
-
-
-# ============================================================================
-# OPENSCAD CLASSES
-# ============================================================================
-
-class Config:
-    MODEL = "claude-sonnet-4-20250514"
-    MAX_CORRECTION_ATTEMPTS = 5
-    BUILD_VOLUME = {"x": 256, "y": 256, "z": 256}
-
-
-class RequestType(Enum):
-    FUNCTIONAL = "functional"
-    ORGANIC = "organic"
-
-
-class RequestClassifier:
-    def __init__(self, client: Anthropic):
-        self.client = client
-    
-    def classify(self, user_request: str) -> RequestType:
-        # Quick keyword check first - more reliable than AI classification
-        lower = user_request.lower()
-        
-        # Definitely functional
-        functional_words = ['bracket', 'mount', 'holder', 'stand', 'box', 'paddle', 
-                           'tool', 'rack', 'shelf', 'hook', 'clip', 'funnel']
-        
-        # Definitely organic
-        organic_words = ['animal', 'dog', 'cat', 'bird', 'bear', 'dragon', 
-                        'person', 'face', 'creature', 'statue', 'figurine']
-        
-        if any(word in lower for word in functional_words):
-            st.info(f"🔧 Detected FUNCTIONAL keyword in: '{user_request}'")
-            return RequestType.FUNCTIONAL
-        
-        if any(word in lower for word in organic_words):
-            st.info(f"🎨 Detected ORGANIC keyword in: '{user_request}'")
-            return RequestType.ORGANIC
-        
-        # If unclear, use AI
-        st.info(f"🤔 Using AI to classify: '{user_request}'")
-        prompt = f"""Classify: "{user_request}"
-
-FUNCTIONAL = tools, parts, geometric objects (brackets, paddles, stands)
-ORGANIC = living things, creatures (animals, people, plants)
-
-Respond ONLY: FUNCTIONAL or ORGANIC"""
-
-        try:
-            response = self.client.messages.create(
-                model=Config.MODEL,
-                max_tokens=10,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            classification = response.content[0].text.strip().upper()
-            result = RequestType.ORGANIC if "ORGANIC" in classification else RequestType.FUNCTIONAL
-            st.info(f"🧠 AI classified as: {result.value}")
-            return result
         except:
-            return RequestType.FUNCTIONAL
-
-
-class ModelGenerator:
-    def __init__(self, client: Anthropic):
-        self.client = client
-        self.enhancer = PromptEnhancer(client)
-    
-    def generate(self, user_request: str) -> Tuple[bool, str, str]:
-        max_attempts = 5  # More attempts, silent retries
-        
-        # Show enhanced prompt once
-        enhanced = self.enhancer.enhance(user_request, "functional")
-        
-        if enhanced != user_request:
-            st.info(f"🔍 **Enhanced Prompt:**\n\n*{enhanced}*")
-        else:
-            st.info(f"🔍 **Using your prompt:** {user_request}")
-        
-        # Single progress indicator for all attempts
-        with st.spinner("🎨 Creating your model..."):
-            for attempt in range(max_attempts):
-                system_prompt = f"""Expert OpenSCAD programmer specializing in beautiful, functional designs.
-BUILD: {Config.BUILD_VOLUME['x']}mm cube
-
-Create professional-quality 3D models with:
-- Realistic, functional dimensions
-- Smooth, refined surfaces (use fillets, chamfers, rounded edges)
-- Elegant proportions and visual appeal
-- Professional detailing (not crude or blocky)
-- High-quality finish suitable for actual manufacturing
-
-Respond with ONLY valid OpenSCAD code, no explanations."""
-                
-                try:
-                    response = self.client.messages.create(
-                        model=Config.MODEL,
-                        max_tokens=4000,
-                        system=system_prompt,
-                        messages=[{"role": "user", "content": f"Create: {enhanced}"}]
-                    )
-                    
-                    code = re.sub(r'```(?:openscad)?\n', '', response.content[0].text)
-                    code = re.sub(r'```\s*$', '', code).strip()
-                    
-                    # SILENT quality check
-                    quality_check = self._check_code_quality(code, user_request, enhanced)
-                    
-                    if quality_check["approved"]:
-                        # PERFECT! Deliver it
-                        return True, code, f"✓ Generated"
-                    # else: silently try again
-                    
-                except Exception as e:
-                    continue  # Try again silently
-            
-            # If all attempts fail, return last attempt
-            return True, code, "✓ Generated"
-    
-    def _check_code_quality(self, code: str, original_request: str, enhanced_request: str) -> Dict:
-        """Check if OpenSCAD code is both functional AND aesthetically pleasing"""
-        try:
-            check_prompt = f"""Review this OpenSCAD code for a "{original_request}":
-
-```openscad
-{code}
-```
-
-Enhanced request: "{enhanced_request}"
-
-Check TWO things:
-1. FUNCTIONALITY - Does it work?
-   - Correct object type
-   - Realistic, usable dimensions
-   - Structurally complete
-   - Would actually function for its purpose
-
-2. AESTHETICS - Does it look good?
-   - Clean, professional design
-   - Smooth surfaces and edges (use fillets/chamfers)
-   - Visually appealing proportions
-   - Not just basic geometric shapes
-   - Refined details (not crude or blocky)
-
-For example, a GOOD door knob should have:
-✅ 60mm diameter spherical or rounded handle
-✅ Smooth chamfered edges
-✅ Decorative details or texture
-✅ Elegant mounting base with rounded transitions
-✅ Professional, refined appearance
-
-A BAD door knob would be:
-❌ Just a plain sphere with a cylinder
-❌ Sharp 90-degree edges
-❌ No visual refinement
-❌ Looks crude or unfinished
-
-Respond with JSON only:
-{{"approved": true/false, "reason": "brief explanation covering both function and aesthetics"}}"""
-
-            response = self.client.messages.create(
-                model=Config.MODEL,
-                max_tokens=200,
-                messages=[{"role": "user", "content": check_prompt}]
-            )
-            
-            result_text = response.content[0].text.strip()
-            # Clean up response and extract JSON
-            result_text = re.sub(r'```json\n?', '', result_text)
-            result_text = re.sub(r'```\n?', '', result_text)
-            
-            import json
-            result = json.loads(result_text.strip())
-            return result
-            
-        except Exception as e:
-            # If check fails, approve by default
-            return {"approved": True, "reason": "Quality check unavailable"}
-
-
-class FallbackPatterns:
-    """Simple fallback patterns for basic geometric shapes only"""
-    
-    @staticmethod
-    def get_simple_shapes() -> List[str]:
-        """Return list of shapes that work well with simple OpenSCAD"""
-        return ["box", "cube", "cylinder", "cone", "sphere"]
-    
-    @staticmethod
-    def box(width=50, height=50, depth=50, wall=2) -> str:
-        return f"""// Simple Box
-cube([{width}, {height}, {depth}]);"""
-    
-    @staticmethod
-    def cylinder_shape(height=50, radius=25) -> str:
-        return f"""// Simple Cylinder
-cylinder(h={height}, r={radius}, $fn=100);"""
-
-
-class ModelAgent:
-    def __init__(self, anthropic_key: str, meshy_key: Optional[str] = None, rodin_key: Optional[str] = None):
-        self.client = Anthropic(api_key=anthropic_key)
-        self.classifier = RequestClassifier(self.client)
-        self.generator = ModelGenerator(self.client)
-        self.fallbacks = FallbackPatterns()
-        self.mesh_generator = OrganicMeshGenerator(self.client, meshy_key, rodin_key)
-    
-    def process_request(self, user_input: str) -> Dict:
-        # FIRST: Check for obvious functional keywords BEFORE calling classifier
-        lower = user_input.lower()
-        
-        functional_keywords = ['bracket', 'mount', 'holder', 'stand', 'box', 'paddle', 
-                              'tool', 'rack', 'shelf', 'hook', 'clip', 'funnel', 'case',
-                              'handle', 'knob', 'gear', 'spacer', 'adapter', 'connector']
-        
-        is_functional = any(keyword in lower for keyword in functional_keywords)
-        
-        if is_functional:
-            # Warn about OpenSCAD limitations for complex items
-            st.warning("⚠️ **OpenSCAD Note:** Complex functional parts may not generate perfectly. For better results with items like knobs, handles, or detailed parts, consider describing them as figurines (e.g., 'door knob figurine') to use AI mesh generation instead.")
-            st.info(f"🔧 Using OpenSCAD (FREE) - Will attempt up to 3 generations to get good results")
-        else:
-            # Only classify if not obviously functional
-            request_type = self.classifier.classify(user_input)
-            
-            if request_type == RequestType.ORGANIC:
-                result = self.mesh_generator.generate(user_input)
-                result['is_mesh'] = True
-                return result
-        
-        # Try OpenSCAD generation with quality control
-        success, code, message = self.generator.generate(user_input)
-        return {"success": success, "scad_code": code, "message": message, "is_mesh": False}
+            return True  # If check fails, approve
 
 
 # ============================================================================
@@ -749,7 +333,7 @@ class ModelAgent:
 
 def main():
     st.title("🎨 AI 3D Model Generator")
-    st.markdown("*Create functional parts and organic shapes*")
+    st.markdown("*100% AI-powered - Professional quality models*")
     
     # Load API keys
     try:
@@ -766,16 +350,16 @@ def main():
         return
     
     # Show available providers
-    providers_available = []
+    providers = []
     if meshy_key:
-        providers_available.append("Meshy.ai ($0.25)")
+        providers.append("Meshy.ai ($0.25)")
     if rodin_key:
-        providers_available.append("Rodin AI ($0.15)")
+        providers.append("Rodin AI ($0.15)")
     
-    if providers_available:
-        st.sidebar.success(f"🎨 Providers: {', '.join(providers_available)}")
+    if providers:
+        st.sidebar.success(f"🎨 Providers: {', '.join(providers)}")
     else:
-        st.sidebar.warning("⚠️ Add MESHY_API_KEY or RODIN_API_KEY for organic shapes")
+        st.sidebar.warning("⚠️ Add MESHY_API_KEY or RODIN_API_KEY")
     
     # Initialize history
     if 'history' not in st.session_state:
@@ -785,7 +369,7 @@ def main():
     with st.form("model_request"):
         user_input = st.text_area(
             "What do you want to create?",
-            placeholder="Try: simple vase, cartoon bear, mounting bracket...",
+            placeholder="Examples: door knob, phone stand, cartoon bear, decorative vase...",
             height=80
         )
         
@@ -800,8 +384,8 @@ def main():
     # Process request
     if submit and user_input:
         try:
-            agent = ModelAgent(anthropic_key, meshy_key, rodin_key)
-            result = agent.process_request(user_input)
+            generator = MeshGenerator(Anthropic(api_key=anthropic_key), meshy_key, rodin_key)
+            result = generator.generate(user_input)
             st.session_state['history'].append({"request": user_input, "result": result})
         except Exception as e:
             st.error(f"Error: {e}")
@@ -818,58 +402,27 @@ def main():
             result = item['result']
             
             if result['success']:
-                st.markdown(f"""<div class="success-box"><strong>✅ {result['message']}</strong></div>""", unsafe_allow_html=True)
+                st.success(f"✅ {result['message']}")
                 
-                if result.get('is_mesh'):
-                    # AI Mesh
-                    provider_name = result.get('provider', 'AI')
-                    st.success(f"✨ Generated with **{provider_name}**")
+                provider = result.get('provider', 'AI')
+                cost = result.get('cost', '')
+                if provider and cost:
+                    st.caption(f"Generated with {provider} • Cost: {cost}")
+                
+                if result.get('model_data'):
+                    file_format = result.get('file_format', 'glb')
+                    st.download_button(
+                        label=f"💾 Download .{file_format} file",
+                        data=result['model_data'],
+                        file_name=f"model_{len(st.session_state['history']) - idx}.{file_format}",
+                        mime="application/octet-stream",
+                        use_container_width=True
+                    )
                     
-                    if result.get('stl_data'):
-                        file_format = result.get('file_format', 'glb')
-                        st.download_button(
-                            label=f"💾 Download .{file_format} file",
-                            data=result['stl_data'],
-                            file_name=f"model_{len(st.session_state['history']) - idx}.{file_format}",
-                            mime="application/octet-stream",
-                            use_container_width=True
-                        )
-                        if file_format == 'glb':
-                            st.info("🔄 Convert to STL: https://products.aspose.app/3d/conversion/glb-to-stl")
-                else:
-                    # OpenSCAD
-                    try:
-                        preview_html = generate_threejs_html(result['scad_code'], height=400)
-                        components.html(preview_html, height=420, scrolling=False)
-                    except: pass
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.download_button(
-                            label="💾 Download .scad file",
-                            data=result['scad_code'],
-                            file_name=f"model_{len(st.session_state['history']) - idx}.scad",
-                            mime="text/plain",
-                            use_container_width=True
-                        )
-                    
-                    with col2:
-                        # Also provide as TXT for mobile viewing
-                        st.download_button(
-                            label="📱 Download as .txt (for mobile)",
-                            data=result['scad_code'],
-                            file_name=f"model_{len(st.session_state['history']) - idx}.txt",
-                            mime="text/plain",
-                            use_container_width=True
-                        )
-                    
-                    # Show code inline for mobile users
-                    with st.expander("👀 View Code (click to expand)"):
-                        st.code(result['scad_code'], language='javascript')
-                        st.info("💡 Copy this code and paste it into OpenSCAD on your computer to generate the STL file")
+                    if file_format == 'glb':
+                        st.info("💡 Convert to STL: https://products.aspose.app/3d/conversion/glb-to-stl")
             else:
-                st.markdown(f"""<div class="error-box"><strong>❌ {result['message']}</strong></div>""", unsafe_allow_html=True)
+                st.error(f"❌ {result['message']}")
             
             st.markdown("---")
 
