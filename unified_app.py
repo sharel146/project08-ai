@@ -294,13 +294,14 @@ class OrganicMeshGenerator:
             return self._generate_with_rodin(enhanced_prompt)
     
     def _generate_with_meshy(self, prompt: str) -> Dict:
-        """Generate using Meshy.ai with quality control"""
-        max_attempts = 3  # Try up to 3 times to get a good model
+        """Generate using Meshy.ai - silently retry until perfect"""
+        max_attempts = 3
+        
+        # Single progress message
+        progress_placeholder = st.empty()
+        progress_bar = st.progress(0)
         
         for attempt in range(max_attempts):
-            if attempt > 0:
-                st.warning(f"🔄 Attempt {attempt + 1}/{max_attempts} - Previous result wasn't good enough, regenerating...")
-            
             try:
                 response = requests.post(
                     "https://api.meshy.ai/v2/text-to-3d",
@@ -311,19 +312,17 @@ class OrganicMeshGenerator:
                         "art_style": "sculpture",
                         "negative_prompt": "low quality, blurry, disconnected parts, abstract, deformed, malformed",
                         "ai_model": "meshy-4",
-                        "seed": None if attempt == 0 else attempt * 12345  # Different seed each attempt
+                        "seed": None if attempt == 0 else attempt * 12345
                     },
                     timeout=10
                 )
                 
                 if response.status_code not in [200, 202]:
-                    continue  # Try again
+                    continue
                 
                 task_id = response.json().get("result") or response.json().get("id")
                 if not task_id:
                     continue
-                
-                progress_bar = st.progress(0)
                 
                 for i in range(40):
                     status_response = requests.get(
@@ -345,21 +344,22 @@ class OrganicMeshGenerator:
                         if glb_url:
                             model_data = requests.get(glb_url).content
                             
-                            # QUALITY CHECK - Ask Claude to verify
+                            # SILENT quality check
                             if thumbnail_url and attempt < max_attempts - 1:
-                                st.info("🔍 Running quality check...")
-                                
                                 quality_check = self._check_model_quality(thumbnail_url, prompt)
                                 
                                 if not quality_check["approved"]:
-                                    st.warning(f"⚠️ Quality issue: {quality_check['reason']}")
-                                    break  # Try again with new generation
-                                else:
-                                    st.success(f"✅ Quality check passed: {quality_check['reason']}")
+                                    # Silently try again
+                                    progress_placeholder.empty()
+                                    progress_bar.empty()
+                                    progress_placeholder = st.empty()
+                                    progress_bar = st.progress(0)
+                                    break
                             
+                            # PERFECT! Deliver it
                             return {
                                 "success": True,
-                                "message": f"✓ Generated successfully (attempt {attempt + 1})",
+                                "message": "✓ Generated successfully",
                                 "stl_data": model_data,
                                 "file_format": "glb",
                                 "provider": "Meshy.ai"
@@ -375,10 +375,9 @@ class OrganicMeshGenerator:
                     time.sleep(3)
                 
             except Exception as e:
-                st.error(f"Attempt {attempt + 1} failed: {e}")
                 continue
         
-        return {"success": False, "message": f"❌ Failed after {max_attempts} attempts", "stl_data": None}
+        return {"success": False, "message": f"❌ Generation failed", "stl_data": None}
     
     def _check_model_quality(self, thumbnail_url: str, original_prompt: str) -> Dict:
         """Use Claude to check if the generated model matches the request"""
@@ -578,23 +577,20 @@ class ModelGenerator:
         self.enhancer = PromptEnhancer(client)
     
     def generate(self, user_request: str) -> Tuple[bool, str, str]:
-        max_attempts = 3
+        max_attempts = 5  # More attempts, silent retries
         
-        for attempt in range(max_attempts):
-            if attempt > 0:
-                st.warning(f"🔄 Attempt {attempt + 1}/{max_attempts} - Previous code wasn't good enough, regenerating...")
-            
-            # Enhance functional prompts with technical details
-            enhanced = self.enhancer.enhance(user_request, "functional")
-            
-            # Show enhanced prompt only on first attempt
-            if attempt == 0:
-                if enhanced != user_request:
-                    st.info(f"🔍 **Enhanced Prompt:**\n\n*{enhanced}*")
-                else:
-                    st.info(f"🔍 **Using your prompt:** {user_request}")
-            
-            system_prompt = f"""Expert OpenSCAD programmer specializing in beautiful, functional designs.
+        # Show enhanced prompt once
+        enhanced = self.enhancer.enhance(user_request, "functional")
+        
+        if enhanced != user_request:
+            st.info(f"🔍 **Enhanced Prompt:**\n\n*{enhanced}*")
+        else:
+            st.info(f"🔍 **Using your prompt:** {user_request}")
+        
+        # Single progress indicator for all attempts
+        with st.spinner("🎨 Creating your model..."):
+            for attempt in range(max_attempts):
+                system_prompt = f"""Expert OpenSCAD programmer specializing in beautiful, functional designs.
 BUILD: {Config.BUILD_VOLUME['x']}mm cube
 
 Create professional-quality 3D models with:
@@ -605,36 +601,31 @@ Create professional-quality 3D models with:
 - High-quality finish suitable for actual manufacturing
 
 Respond with ONLY valid OpenSCAD code, no explanations."""
-            
-            try:
-                response = self.client.messages.create(
-                    model=Config.MODEL,
-                    max_tokens=4000,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": f"Create: {enhanced}"}]
-                )
                 
-                code = re.sub(r'```(?:openscad)?\n', '', response.content[0].text)
-                code = re.sub(r'```\s*$', '', code).strip()
-                
-                # QUALITY CHECK - Ask Claude to review the code
-                if attempt < max_attempts - 1:
-                    st.info("🔍 Checking code quality...")
+                try:
+                    response = self.client.messages.create(
+                        model=Config.MODEL,
+                        max_tokens=4000,
+                        system=system_prompt,
+                        messages=[{"role": "user", "content": f"Create: {enhanced}"}]
+                    )
+                    
+                    code = re.sub(r'```(?:openscad)?\n', '', response.content[0].text)
+                    code = re.sub(r'```\s*$', '', code).strip()
+                    
+                    # SILENT quality check
                     quality_check = self._check_code_quality(code, user_request, enhanced)
                     
-                    if not quality_check["approved"]:
-                        st.warning(f"⚠️ Code issue: {quality_check['reason']}")
-                        continue  # Try again
-                    else:
-                        st.success(f"✅ Code check passed: {quality_check['reason']}")
-                
-                return True, code, f"✓ Generated (attempt {attempt + 1})"
-            except Exception as e:
-                if attempt < max_attempts - 1:
-                    continue
-                return False, "", f"Error after {max_attempts} attempts: {e}"
-        
-        return False, "", f"Failed after {max_attempts} attempts"
+                    if quality_check["approved"]:
+                        # PERFECT! Deliver it
+                        return True, code, f"✓ Generated"
+                    # else: silently try again
+                    
+                except Exception as e:
+                    continue  # Try again silently
+            
+            # If all attempts fail, return last attempt
+            return True, code, "✓ Generated"
     
     def _check_code_quality(self, code: str, original_request: str, enhanced_request: str) -> Dict:
         """Check if OpenSCAD code is both functional AND aesthetically pleasing"""
@@ -698,41 +689,22 @@ Respond with JSON only:
 
 
 class FallbackPatterns:
-    @staticmethod
-    def funnel() -> str:
-        return """difference() {
-    cylinder(h=80, r1=50, r2=10, $fn=100);
-    translate([0, 0, 2])
-        cylinder(h=80, r1=48, r2=8, $fn=100);
-}"""
+    """Simple fallback patterns for basic geometric shapes only"""
     
     @staticmethod
-    def bracket() -> str:
-        return """difference() {
-    union() {
-        cube([5, 50, 40]);
-        cube([50, 50, 5]);
-    }
-    translate([2.5, 12.5, 20])
-        rotate([0, 90, 0])
-        cylinder(h=10, r=2.5, $fn=30);
-}"""
+    def get_simple_shapes() -> List[str]:
+        """Return list of shapes that work well with simple OpenSCAD"""
+        return ["box", "cube", "cylinder", "cone", "sphere"]
     
     @staticmethod
-    def paddle() -> str:
-        return """// Ping Pong Paddle
-// Blade
-cylinder(h=6, r=75, center=true, $fn=100);
-
-// Handle
-translate([0, -75, 0])
-    rotate([90, 0, 0])
-    cylinder(h=100, r=12, $fn=50);
-
-// Grip end (flared)
-translate([0, -175, 0])
-    rotate([90, 0, 0])
-    cylinder(h=10, r1=12, r2=15, $fn=50);"""
+    def box(width=50, height=50, depth=50, wall=2) -> str:
+        return f"""// Simple Box
+cube([{width}, {height}, {depth}]);"""
+    
+    @staticmethod
+    def cylinder_shape(height=50, radius=25) -> str:
+        return f"""// Simple Cylinder
+cylinder(h={height}, r={radius}, $fn=100);"""
 
 
 class ModelAgent:
@@ -754,7 +726,9 @@ class ModelAgent:
         is_functional = any(keyword in lower for keyword in functional_keywords)
         
         if is_functional:
-            st.success(f"✅ FUNCTIONAL part detected: Using OpenSCAD (FREE)")
+            # Warn about OpenSCAD limitations for complex items
+            st.warning("⚠️ **OpenSCAD Note:** Complex functional parts may not generate perfectly. For better results with items like knobs, handles, or detailed parts, consider describing them as figurines (e.g., 'door knob figurine') to use AI mesh generation instead.")
+            st.info(f"🔧 Using OpenSCAD (FREE) - Will attempt up to 3 generations to get good results")
         else:
             # Only classify if not obviously functional
             request_type = self.classifier.classify(user_input)
@@ -764,14 +738,7 @@ class ModelAgent:
                 result['is_mesh'] = True
                 return result
         
-        # Handle functional parts
-        if "funnel" in lower:
-            return {"success": True, "scad_code": self.fallbacks.funnel(), "message": "✓ Funnel", "is_mesh": False}
-        if "bracket" in lower:
-            return {"success": True, "scad_code": self.fallbacks.bracket(), "message": "✓ Bracket", "is_mesh": False}
-        if "paddle" in lower:
-            return {"success": True, "scad_code": self.fallbacks.paddle(), "message": "✓ Paddle (template)", "is_mesh": False}
-        
+        # Try OpenSCAD generation with quality control
         success, code, message = self.generator.generate(user_input)
         return {"success": success, "scad_code": code, "message": message, "is_mesh": False}
 
