@@ -192,20 +192,22 @@ class PromptEnhancer:
         
         try:
             if type_hint == "functional":
-                # Enhance functional parts with technical details
+                # Enhance functional parts with VERY specific technical details
                 response = self.client.messages.create(
                     model="claude-sonnet-4-20250514",
-                    max_tokens=80,
-                    messages=[{"role": "user", "content": f"""Describe this functional 3D part with technical details for modeling:
+                    max_tokens=100,
+                    messages=[{"role": "user", "content": f"""Describe this 3D object with VERY specific details for accurate modeling:
 
 "{prompt}"
 
-Focus on: dimensions, shape, purpose, mounting method, key features.
-Be specific and technical (under 40 words).
+Include: exact shape, dimensions, proportions, angles, thickness, and distinctive features.
+Be extremely specific and technical (under 60 words).
 
-Example for "bracket": "L-shaped mounting bracket, 90-degree angle, flat base plate with two screw holes, vertical mounting surface with single centered hole, 5mm thick walls"
+Example for "bracket": "L-shaped steel bracket with precise 90-degree angle, flat horizontal base 50x50mm with two 5mm mounting holes spaced 40mm apart, vertical arm 50x40mm with single centered 5mm hole, uniform 3mm wall thickness throughout, rounded 2mm edge fillets"
 
-Example for "phone stand": "angled phone holder, wide rectangular base for stability, vertical back support at 60 degrees, lower lip to hold phone, smooth curved edges"
+Example for "phone stand": "Phone holder with stable 100x80mm rectangular base, angled back support rising at exactly 65 degrees from base, lower front lip 15mm high to prevent sliding, side walls 5mm thick, smooth 3mm radius on all edges"
+
+Example for "ping pong paddle": "Table tennis paddle with flat circular blade 150mm diameter and 6mm thickness, straight cylindrical handle 100mm long and 25mm diameter extending from blade center, flared grip at handle end, smooth transitions"
 
 Now describe: {prompt}"""}]
                 )
