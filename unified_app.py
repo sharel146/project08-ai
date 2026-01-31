@@ -419,9 +419,30 @@ class RequestClassifier:
         self.client = client
     
     def classify(self, user_request: str) -> RequestType:
-        prompt = f"""Is this request for FUNCTIONAL (geometric parts) or ORGANIC (animals/curved shapes)?
-"{user_request}"
-Respond with ONLY: FUNCTIONAL or ORGANIC"""
+        # Quick keyword check first - more reliable than AI classification
+        lower = user_request.lower()
+        
+        # Definitely functional
+        functional_words = ['bracket', 'mount', 'holder', 'stand', 'box', 'paddle', 
+                           'tool', 'rack', 'shelf', 'hook', 'clip', 'funnel']
+        
+        # Definitely organic
+        organic_words = ['animal', 'dog', 'cat', 'bird', 'bear', 'dragon', 
+                        'person', 'face', 'creature', 'statue', 'figurine']
+        
+        if any(word in lower for word in functional_words):
+            return RequestType.FUNCTIONAL
+        
+        if any(word in lower for word in organic_words):
+            return RequestType.ORGANIC
+        
+        # If unclear, use AI
+        prompt = f"""Classify: "{user_request}"
+
+FUNCTIONAL = tools, parts, geometric objects (brackets, paddles, stands)
+ORGANIC = living things, creatures (animals, people, plants)
+
+Respond ONLY: FUNCTIONAL or ORGANIC"""
 
         try:
             response = self.client.messages.create(
