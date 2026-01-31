@@ -185,21 +185,33 @@ class PromptEnhancer:
         self.client = client
     
     def enhance(self, prompt: str, type_hint: str) -> str:
-        if len(prompt.strip()) >= 15:
-            return prompt
+        # For organic shapes, describe WHAT IT LOOKS LIKE physically
+        
+        if len(prompt.strip()) >= 20:
+            return prompt  # Already detailed enough
         
         try:
             response = self.client.messages.create(
                 model="claude-sonnet-4-20250514",
-                max_tokens=60,
-                messages=[{"role": "user", "content": f'Improve this 3D {type_hint} prompt to be clear but UNDER 50 words: "{prompt}". Respond ONLY with the improved prompt.'}]
+                max_tokens=80,
+                messages=[{"role": "user", "content": f"""Describe what a {prompt} LOOKS LIKE physically for 3D modeling.
+
+Focus on: shape, proportions, key features, pose/position.
+Be specific but concise (under 40 words).
+Don't use artistic language - just describe the physical form.
+
+Example for "dog": "four-legged canine, medium sized, sitting pose, pointed ears, tail curved to side, distinct snout"
+Example for "ping pong paddle": "flat oval blade, long thin handle, simple geometric shape"
+
+Now describe: {prompt}"""}]
             )
+            
             enhanced = response.content[0].text.strip().strip('"').strip("'")
             if len(enhanced) > 200:
                 enhanced = enhanced[:200]
             return enhanced
         except:
-            return f"{prompt} detailed 3D printable model"
+            return prompt
 
 
 # ============================================================================
@@ -465,14 +477,10 @@ Respond ONLY: FUNCTIONAL or ORGANIC"""
 class ModelGenerator:
     def __init__(self, client: Anthropic):
         self.client = client
-        self.enhancer = PromptEnhancer(client)
+        # NO prompt enhancer for functional parts!
     
     def generate(self, user_request: str) -> Tuple[bool, str, str]:
-        enhanced = self.enhancer.enhance(user_request, "functional")
-        
-        if enhanced != user_request:
-            st.success(f"💡 Enhanced: \"{enhanced}\"")
-        
+        # DON'T enhance functional prompts - use them directly!
         system_prompt = f"""Expert OpenSCAD programmer.
 BUILD: {Config.BUILD_VOLUME['x']}mm cube
 Respond with ONLY valid OpenSCAD code, no explanations."""
@@ -482,7 +490,7 @@ Respond with ONLY valid OpenSCAD code, no explanations."""
                 model=Config.MODEL,
                 max_tokens=4000,
                 system=system_prompt,
-                messages=[{"role": "user", "content": f"Create: {enhanced}"}]
+                messages=[{"role": "user", "content": f"Create: {user_request}"}]  # Use original request!
             )
             
             code = re.sub(r'```(?:openscad)?\n', '', response.content[0].text)
