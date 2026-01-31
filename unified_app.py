@@ -524,15 +524,27 @@ class ModelAgent:
         self.mesh_generator = OrganicMeshGenerator(self.client, meshy_key, rodin_key)
     
     def process_request(self, user_input: str) -> Dict:
-        request_type = self.classifier.classify(user_input)
-        
-        if request_type == RequestType.ORGANIC:
-            result = self.mesh_generator.generate(user_input)
-            result['is_mesh'] = True
-            return result
-        
-        # Check fallbacks
+        # FIRST: Check for obvious functional keywords BEFORE calling classifier
         lower = user_input.lower()
+        
+        functional_keywords = ['bracket', 'mount', 'holder', 'stand', 'box', 'paddle', 
+                              'tool', 'rack', 'shelf', 'hook', 'clip', 'funnel', 'case',
+                              'handle', 'knob', 'gear', 'spacer', 'adapter', 'connector']
+        
+        is_functional = any(keyword in lower for keyword in functional_keywords)
+        
+        if is_functional:
+            st.success(f"✅ FUNCTIONAL part detected: Using OpenSCAD (FREE)")
+        else:
+            # Only classify if not obviously functional
+            request_type = self.classifier.classify(user_input)
+            
+            if request_type == RequestType.ORGANIC:
+                result = self.mesh_generator.generate(user_input)
+                result['is_mesh'] = True
+                return result
+        
+        # Handle functional parts
         if "funnel" in lower:
             return {"success": True, "scad_code": self.fallbacks.funnel(), "message": "✓ Funnel", "is_mesh": False}
         if "bracket" in lower:
