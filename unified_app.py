@@ -431,12 +431,15 @@ class RequestClassifier:
                         'person', 'face', 'creature', 'statue', 'figurine']
         
         if any(word in lower for word in functional_words):
+            st.info(f"🔧 Detected FUNCTIONAL keyword in: '{user_request}'")
             return RequestType.FUNCTIONAL
         
         if any(word in lower for word in organic_words):
+            st.info(f"🎨 Detected ORGANIC keyword in: '{user_request}'")
             return RequestType.ORGANIC
         
         # If unclear, use AI
+        st.info(f"🤔 Using AI to classify: '{user_request}'")
         prompt = f"""Classify: "{user_request}"
 
 FUNCTIONAL = tools, parts, geometric objects (brackets, paddles, stands)
@@ -452,7 +455,9 @@ Respond ONLY: FUNCTIONAL or ORGANIC"""
             )
             
             classification = response.content[0].text.strip().upper()
-            return RequestType.ORGANIC if "ORGANIC" in classification else RequestType.FUNCTIONAL
+            result = RequestType.ORGANIC if "ORGANIC" in classification else RequestType.FUNCTIONAL
+            st.info(f"🧠 AI classified as: {result.value}")
+            return result
         except:
             return RequestType.FUNCTIONAL
 
