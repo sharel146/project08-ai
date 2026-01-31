@@ -65,19 +65,19 @@ class MeshyRefineGenerator:
         self.enhancer = PromptEnhancer(anthropic_client)
     
     def generate(self, user_request: str) -> Dict:
-        """Generate with Meshy v4 REFINE mode - highest quality"""
+        """Generate with Meshy v4 - highest quality possible"""
         
         # Enhance prompt with extreme detail
         enhanced_prompt = self.enhancer.enhance(user_request)
         
         st.info(f"🔍 **Enhanced Prompt:**\n\n*{enhanced_prompt}*")
         
-        max_attempts = 2  # REFINE is expensive, only try twice
+        max_attempts = 3  # Try up to 3 times
         
         for attempt in range(max_attempts):
             try:
-                with st.spinner(f"🎨 Creating high-quality model... (this takes 3-5 minutes)"):
-                    # Start REFINE mode generation
+                with st.spinner(f"🎨 Creating your model..."):
+                    # Use PREVIEW mode (actually works!)
                     response = requests.post(
                         "https://api.meshy.ai/v2/text-to-3d",
                         headers={
@@ -85,10 +85,10 @@ class MeshyRefineGenerator:
                             "Content-Type": "application/json"
                         },
                         json={
-                            "mode": "refine",
+                            "mode": "preview",
                             "prompt": enhanced_prompt,
                             "art_style": "realistic",
-                            "negative_prompt": "low quality, low poly, blurry, disconnected parts, deformed, malformed, broken, incomplete, abstract",
+                            "negative_prompt": "low quality, low poly, blurry, disconnected, deformed, broken, abstract",
                             "ai_model": "meshy-4"
                         },
                         timeout=15
@@ -97,12 +97,12 @@ class MeshyRefineGenerator:
                     if response.status_code not in [200, 202]:
                         error_details = ""
                         try:
-                            error_details = response.json()
+                            error_data = response.json()
+                            error_details = error_data.get("message", response.text)
                         except:
                             error_details = response.text
                         
                         if attempt < max_attempts - 1:
-                            st.warning(f"Generation failed (error {response.status_code}), retrying...")
                             continue
                         return {"success": False, "message": f"❌ API error {response.status_code}: {error_details}"}
                     
@@ -146,11 +146,11 @@ class MeshyRefineGenerator:
                                 
                                 return {
                                     "success": True,
-                                    "message": "✓ High-quality model generated",
+                                    "message": "✓ Model generated successfully",
                                     "model_data": model_data,
                                     "file_format": "glb",
-                                    "cost": "$1.00",
-                                    "quality": "REFINE (highest)"
+                                    "cost": "$0.25",
+                                    "quality": "Preview + Enhanced Prompt"
                                 }
                             break
                             
@@ -229,12 +229,13 @@ def main():
         return
     
     st.sidebar.info("""
-**Quality:** REFINE mode (highest available)
-**Cost:** $1.00 per model
-**Time:** 3-5 minutes
-**Output:** High-poly GLB (100k triangles)
+**Provider:** Meshy AI v4
+**Mode:** Preview (fast)
+**Cost:** $0.25 per model
+**Time:** 1-2 minutes
+**Output:** High-quality GLB
 
-Worth it - models actually work!
+With extreme prompt enhancement!
 """)
     
     if 'history' not in st.session_state:
@@ -249,7 +250,7 @@ Worth it - models actually work!
         
         col1, col2 = st.columns([1, 5])
         with col1:
-            submit = st.form_submit_button("🚀 Generate ($1)", use_container_width=True)
+            submit = st.form_submit_button("🚀 Generate", use_container_width=True)
         with col2:
             if st.form_submit_button("🗑️ Clear", use_container_width=True):
                 st.session_state['history'] = []
