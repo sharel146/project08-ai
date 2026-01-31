@@ -555,6 +555,22 @@ class FallbackPatterns:
         rotate([0, 90, 0])
         cylinder(h=10, r=2.5, $fn=30);
 }"""
+    
+    @staticmethod
+    def paddle() -> str:
+        return """// Ping Pong Paddle
+// Blade
+cylinder(h=6, r=75, center=true, $fn=100);
+
+// Handle
+translate([0, -75, 0])
+    rotate([90, 0, 0])
+    cylinder(h=100, r=12, $fn=50);
+
+// Grip end (flared)
+translate([0, -175, 0])
+    rotate([90, 0, 0])
+    cylinder(h=10, r1=12, r2=15, $fn=50);"""
 
 
 class ModelAgent:
@@ -591,6 +607,8 @@ class ModelAgent:
             return {"success": True, "scad_code": self.fallbacks.funnel(), "message": "✓ Funnel", "is_mesh": False}
         if "bracket" in lower:
             return {"success": True, "scad_code": self.fallbacks.bracket(), "message": "✓ Bracket", "is_mesh": False}
+        if "paddle" in lower:
+            return {"success": True, "scad_code": self.fallbacks.paddle(), "message": "✓ Paddle (template)", "is_mesh": False}
         
         success, code, message = self.generator.generate(user_input)
         return {"success": success, "scad_code": code, "message": message, "is_mesh": False}
