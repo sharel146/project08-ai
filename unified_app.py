@@ -185,30 +185,51 @@ class PromptEnhancer:
         self.client = client
     
     def enhance(self, prompt: str, type_hint: str) -> str:
-        # For organic shapes, describe WHAT IT LOOKS LIKE physically
+        # Always enhance if prompt is short
         
         if len(prompt.strip()) >= 20:
             return prompt  # Already detailed enough
         
         try:
-            response = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=80,
-                messages=[{"role": "user", "content": f"""Describe what a {prompt} LOOKS LIKE physically for 3D modeling.
+            if type_hint == "functional":
+                # Enhance functional parts with technical details
+                response = self.client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=80,
+                    messages=[{"role": "user", "content": f"""Describe this functional 3D part with technical details for modeling:
+
+"{prompt}"
+
+Focus on: dimensions, shape, purpose, mounting method, key features.
+Be specific and technical (under 40 words).
+
+Example for "bracket": "L-shaped mounting bracket, 90-degree angle, flat base plate with two screw holes, vertical mounting surface with single centered hole, 5mm thick walls"
+
+Example for "phone stand": "angled phone holder, wide rectangular base for stability, vertical back support at 60 degrees, lower lip to hold phone, smooth curved edges"
+
+Now describe: {prompt}"""}]
+                )
+            else:
+                # Enhance organic shapes with physical descriptions
+                response = self.client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=80,
+                    messages=[{"role": "user", "content": f"""Describe what a {prompt} LOOKS LIKE physically for 3D modeling.
 
 Focus on: shape, proportions, key features, pose/position.
 Be specific but concise (under 40 words).
 Don't use artistic language - just describe the physical form.
 
 Example for "dog": "four-legged canine, medium sized, sitting pose, pointed ears, tail curved to side, distinct snout"
-Example for "ping pong paddle": "flat oval blade, long thin handle, simple geometric shape"
+
+Example for "vase": "cylindrical container, narrow base widening to middle then narrowing at top, smooth curved surface"
 
 Now describe: {prompt}"""}]
-            )
+                )
             
             enhanced = response.content[0].text.strip().strip('"').strip("'")
-            if len(enhanced) > 200:
-                enhanced = enhanced[:200]
+            if len(enhanced) > 250:
+                enhanced = enhanced[:250]
             return enhanced
         except:
             return prompt
@@ -480,10 +501,18 @@ Respond ONLY: FUNCTIONAL or ORGANIC"""
 class ModelGenerator:
     def __init__(self, client: Anthropic):
         self.client = client
-        # NO prompt enhancer for functional parts!
+        self.enhancer = PromptEnhancer(client)
     
     def generate(self, user_request: str) -> Tuple[bool, str, str]:
-        # DON'T enhance functional prompts - use them directly!
+        # Enhance functional prompts with technical details
+        enhanced = self.enhancer.enhance(user_request, "functional")
+        
+        # Show enhanced prompt
+        if enhanced != user_request:
+            st.info(f"🔍 **Enhanced Prompt:**\n\n*{enhanced}*")
+        else:
+            st.info(f"🔍 **Using your prompt:** {user_request}")
+        
         system_prompt = f"""Expert OpenSCAD programmer.
 BUILD: {Config.BUILD_VOLUME['x']}mm cube
 Respond with ONLY valid OpenSCAD code, no explanations."""
@@ -493,7 +522,7 @@ Respond with ONLY valid OpenSCAD code, no explanations."""
                 model=Config.MODEL,
                 max_tokens=4000,
                 system=system_prompt,
-                messages=[{"role": "user", "content": f"Create: {user_request}"}]  # Use original request!
+                messages=[{"role": "user", "content": f"Create: {enhanced}"}]
             )
             
             code = re.sub(r'```(?:openscad)?\n', '', response.content[0].text)
