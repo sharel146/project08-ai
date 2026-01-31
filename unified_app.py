@@ -88,26 +88,37 @@ Now describe: {prompt}"""}]
 class MeshProvider(Enum):
     MESHY = "meshy"
     RODIN = "rodin"
+    CSM = "csm"
 
 
 class MeshGenerator:
-    def __init__(self, anthropic_client: Anthropic, meshy_key: Optional[str] = None, rodin_key: Optional[str] = None):
+    def __init__(self, anthropic_client: Anthropic, meshy_key: Optional[str] = None, rodin_key: Optional[str] = None, csm_key: Optional[str] = None):
         self.anthropic_client = anthropic_client
         self.meshy_key = meshy_key
         self.rodin_key = rodin_key
+        self.csm_key = csm_key
         self.enhancer = PromptEnhancer(anthropic_client)
     
     def select_provider(self, prompt: str) -> MeshProvider:
         """Select best provider based on prompt"""
         lower = prompt.lower()
         
+        # CSM for functional/mechanical parts
+        functional_keywords = ['knob', 'handle', 'bracket', 'mount', 'holder', 'stand', 
+                              'tool', 'part', 'gear', 'screw', 'bolt', 'hinge', 'latch']
+        if any(keyword in lower for keyword in functional_keywords):
+            if self.csm_key:
+                return MeshProvider.CSM
+        
         # Rodin for simple/cartoon
         if any(word in lower for word in ['cartoon', 'simple', 'cute', 'toy', 'stylized']):
             if self.rodin_key:
                 return MeshProvider.RODIN
         
-        # Default to Meshy
-        if self.meshy_key:
+        # Default priority: CSM > Meshy > Rodin
+        if self.csm_key:
+            return MeshProvider.CSM
+        elif self.meshy_key:
             return MeshProvider.MESHY
         elif self.rodin_key:
             return MeshProvider.RODIN
@@ -129,12 +140,91 @@ class MeshGenerator:
         provider = self.select_provider(enhanced_prompt)
         
         if not provider:
-            return {"success": False, "message": "⚠️ Add MESHY_API_KEY or RODIN_API_KEY to secrets"}
+            return {"success": False, "message": "⚠️ Add CSM_API_KEY, MESHY_API_KEY or RODIN_API_KEY to secrets"}
         
-        if provider == MeshProvider.MESHY:
+        if provider == MeshProvider.CSM:
+            return self._generate_with_csm(enhanced_prompt, user_request)
+        elif provider == MeshProvider.MESHY:
             return self._generate_with_meshy(enhanced_prompt, user_request)
         else:
             return self._generate_with_rodin(enhanced_prompt, user_request)
+    
+    def _generate_with_csm(self, prompt: str, original: str) -> Dict:
+        """Generate with CSM - best for functional/mechanical parts"""
+        
+        with st.spinner("🎨 Creating your model with CSM (mechanical specialist)..."):
+            try:
+                # CSM API endpoint
+                response = requests.post(
+                    "https://api.csm.ai/image-to-3d-sessions",
+                    headers={
+                        "Authorization": f"Bearer {self.csm_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "prompt": prompt,
+                        "format": "glb"
+                    },
+                    timeout=15
+                )
+                
+                if response.status_code not in [200, 201]:
+                    # Fallback to Meshy
+                    if self.meshy_key:
+                        st.info("CSM unavailable, using Meshy...")
+                        return self._generate_with_meshy(prompt, original)
+                    return {"success": False, "message": "❌ Generation failed"}
+                
+                session_id = response.json().get("id")
+                if not session_id:
+                    return {"success": False, "message": "❌ No session ID"}
+                
+                progress_bar = st.progress(0)
+                
+                # Poll for completion (CSM takes 2-3 minutes)
+                for i in range(60):
+                    status_response = requests.get(
+                        f"https://api.csm.ai/image-to-3d-sessions/{session_id}",
+                        headers={"Authorization": f"Bearer {self.csm_key}"}
+                    )
+                    
+                    if status_response.status_code != 200:
+                        break
+                    
+                    status_data = status_response.json()
+                    status = status_data.get("status")
+                    
+                    if status == "succeeded":
+                        progress_bar.progress(100)
+                        model_url = status_data.get("output", {}).get("model_url")
+                        
+                        if model_url:
+                            model_data = requests.get(model_url).content
+                            return {
+                                "success": True,
+                                "message": "✓ Generated successfully",
+                                "model_data": model_data,
+                                "file_format": "glb",
+                                "provider": "CSM AI",
+                                "cost": "$0.40"
+                            }
+                        break
+                    elif status in ["failed", "error"]:
+                        if self.meshy_key:
+                            st.info("CSM failed, using Meshy...")
+                            return self._generate_with_meshy(prompt, original)
+                        break
+                    
+                    progress = min((i + 1) * 1.5, 95)
+                    progress_bar.progress(int(progress))
+                    time.sleep(3)
+            
+            except Exception as e:
+                if self.meshy_key:
+                    st.info(f"CSM error, using Meshy...")
+                    return self._generate_with_meshy(prompt, original)
+        
+        return {"success": False, "message": "❌ Generation failed"}
     
     def _generate_with_meshy(self, prompt: str, original: str) -> Dict:
         """Generate with Meshy - silent retries until perfect"""
@@ -340,10 +430,12 @@ def main():
         anthropic_key = st.secrets.get("ANTHROPIC_API_KEY", "")
         meshy_key = st.secrets.get("MESHY_API_KEY", "")
         rodin_key = st.secrets.get("RODIN_API_KEY", "")
+        csm_key = st.secrets.get("CSM_API_KEY", "")
     except:
         anthropic_key = ""
         meshy_key = ""
         rodin_key = ""
+        csm_key = ""
     
     if not anthropic_key:
         st.error("⚠️ Add ANTHROPIC_API_KEY to Streamlit secrets")
@@ -351,15 +443,17 @@ def main():
     
     # Show available providers
     providers = []
+    if csm_key:
+        providers.append("CSM AI ($0.40 - mechanical)")
     if meshy_key:
         providers.append("Meshy.ai ($0.25)")
     if rodin_key:
         providers.append("Rodin AI ($0.15)")
     
     if providers:
-        st.sidebar.success(f"🎨 Providers: {', '.join(providers)}")
+        st.sidebar.success(f"🎨 Providers:\n" + "\n".join(f"• {p}" for p in providers))
     else:
-        st.sidebar.warning("⚠️ Add MESHY_API_KEY or RODIN_API_KEY")
+        st.sidebar.warning("⚠️ Add CSM_API_KEY, MESHY_API_KEY or RODIN_API_KEY")
     
     # Initialize history
     if 'history' not in st.session_state:
@@ -384,7 +478,7 @@ def main():
     # Process request
     if submit and user_input:
         try:
-            generator = MeshGenerator(Anthropic(api_key=anthropic_key), meshy_key, rodin_key)
+            generator = MeshGenerator(Anthropic(api_key=anthropic_key), meshy_key, rodin_key, csm_key)
             result = generator.generate(user_input)
             st.session_state['history'].append({"request": user_input, "result": result})
         except Exception as e:
