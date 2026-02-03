@@ -29,67 +29,52 @@ class ModelSearcher:
         self.client = anthropic_client
     
     def search_models(self, query: str) -> List[Dict]:
-        """Search for 3D models using web_fetch to get actual HTML"""
+        """Search Printables.com directly with requests"""
         try:
             st.info(f"🔍 Searching Printables.com for: '{query}'")
             
-            # Fetch the actual Printables search page
-            search_url = f"https://www.printables.com/search/models?q={query.replace(' ', '%20')}"
+            search_url = f"https://www.printables.com/api/search?q={query.replace(' ', '%20')}&limit=5"
             
-            # Use web_fetch to get the page
-            import subprocess
-            import json
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json'
+            }
             
-            # Call web_fetch via the Anthropic client
-            search_response = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=3000,
-                tools=[{
-                    "type": "web_fetch_20250513",
-                    "name": "web_fetch" 
-                }],
-                messages=[{
-                    "role": "user",
-                    "content": f"Fetch this URL and extract 3D model information: {search_url}"
-                }]
-            )
+            response = requests.get(search_url, headers=headers, timeout=10)
             
-            # Parse response for model data
-            models = []
-            response_text = ""
-            
-            for block in search_response.content:
-                if hasattr(block, 'text'):
-                    response_text += block.text
-            
-            # Extract model information from response
-            import re
-            
-            # Look for model URLs in the response
-            model_urls = re.findall(r'printables\.com/model/(\d+)-([^"\s]+)', response_text)
-            
-            for idx, (model_id, model_slug) in enumerate(model_urls[:5]):
-                model_name = model_slug.replace('-', ' ').replace('_', ' ').title()
-                model_url = f"https://www.printables.com/model/{model_id}-{model_slug}"
+            if response.status_code == 200:
+                data = response.json()
+                hits = data.get('hits', [])
                 
-                # Construct thumbnail URL (Printables uses predictable patterns)
-                thumbnail_url = f"https://media.printables.com/media/prints/{model_id}/thumbs/cover/640_480_jpg/{model_id}_cover.webp"
+                models = []
+                for hit in hits[:5]:
+                    model_id = hit.get('id')
+                    name = hit.get('name', 'Unnamed Model')
+                    slug = hit.get('slug', '')
+                    
+                    # Get thumbnail from hit data
+                    images = hit.get('images', [])
+                    thumbnail = images[0].get('filePath') if images else None
+                    if thumbnail and not thumbnail.startswith('http'):
+                        thumbnail = f"https://media.printables.com{thumbnail}"
+                    
+                    models.append({
+                        'name': name,
+                        'url': f"https://www.printables.com/model/{model_id}",
+                        'thumbnail': thumbnail,
+                        'description': hit.get('summary', ''),
+                        'download_url': f"https://www.printables.com/model/{model_id}"
+                    })
                 
-                models.append({
-                    'name': model_name,
-                    'url': model_url,
-                    'thumbnail': thumbnail_url,
-                    'description': '',
-                    'download_url': model_url
-                })
-            
-            if not models:
-                st.warning("Could not parse models from search results")
-            
-            return models
+                return models
+            else:
+                st.warning(f"Search returned status {response.status_code}")
+                return []
             
         except Exception as e:
             st.error(f"Search error: {e}")
+            import traceback
+            st.code(traceback.format_exc())
             return []
     
     def search_printables(self, query: str) -> List[Dict]:
