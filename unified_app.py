@@ -29,65 +29,67 @@ class ModelSearcher:
         self.client = anthropic_client
     
     def search_models(self, query: str) -> List[Dict]:
-        """Search for 3D models using web search"""
+        """Search for 3D models using web_fetch to get actual HTML"""
         try:
-            st.info(f"🔍 Searching for 3D models: '{query}'")
+            st.info(f"🔍 Searching Printables.com for: '{query}'")
             
-            # Use Anthropic's web search to find models
-            search_query = f"{query} 3D model STL free printables.com OR thingiverse.com"
+            # Fetch the actual Printables search page
+            search_url = f"https://www.printables.com/search/models?q={query.replace(' ', '%20')}"
             
-            # Make web search request
+            # Use web_fetch to get the page
+            import subprocess
             import json
-            search_result = self.client.messages.create(
+            
+            # Call web_fetch via the Anthropic client
+            search_response = self.client.messages.create(
                 model="claude-sonnet-4-20250514",
-                max_tokens=2000,
+                max_tokens=3000,
                 tools=[{
-                    "type": "web_search_20250305",
-                    "name": "web_search"
+                    "type": "web_fetch_20250513",
+                    "name": "web_fetch" 
                 }],
                 messages=[{
                     "role": "user",
-                    "content": f"Search for: {search_query}. Find at least 5 different 3D printable models."
+                    "content": f"Fetch this URL and extract 3D model information: {search_url}"
                 }]
             )
             
-            # Process results
+            # Parse response for model data
             models = []
-            
-            for block in search_result.content:
-                if hasattr(block, 'type') and block.type == 'tool_use':
-                    # Extract search results
-                    if hasattr(block, 'name') and block.name == 'web_search':
-                        # Results are in the next assistant turn
-                        pass
-            
-            # Parse the response for model links
             response_text = ""
-            for block in search_result.content:
+            
+            for block in search_response.content:
                 if hasattr(block, 'text'):
                     response_text += block.text
             
-            # Extract URLs from response
+            # Extract model information from response
             import re
-            urls = re.findall(r'https?://(?:www\.)?(?:printables\.com|thingiverse\.com)/[^\s\)]+', response_text)
             
-            for idx, url in enumerate(urls[:5]):  # Top 5
-                # Extract title from URL
-                title_match = re.search(r'/([^/]+)/?$', url)
-                title = title_match.group(1).replace('-', ' ').replace('_', ' ').title() if title_match else f"Model {idx+1}"
+            # Look for model URLs in the response
+            model_urls = re.findall(r'printables\.com/model/(\d+)-([^"\s]+)', response_text)
+            
+            for idx, (model_id, model_slug) in enumerate(model_urls[:5]):
+                model_name = model_slug.replace('-', ' ').replace('_', ' ').title()
+                model_url = f"https://www.printables.com/model/{model_id}-{model_slug}"
+                
+                # Construct thumbnail URL (Printables uses predictable patterns)
+                thumbnail_url = f"https://media.printables.com/media/prints/{model_id}/thumbs/cover/640_480_jpg/{model_id}_cover.webp"
                 
                 models.append({
-                    'name': title,
-                    'url': url,
-                    'thumbnail': None,  # Will be fetched later
+                    'name': model_name,
+                    'url': model_url,
+                    'thumbnail': thumbnail_url,
                     'description': '',
-                    'download_url': url
+                    'download_url': model_url
                 })
+            
+            if not models:
+                st.warning("Could not parse models from search results")
             
             return models
             
         except Exception as e:
-            st.warning(f"Search error: {e}")
+            st.error(f"Search error: {e}")
             return []
     
     def search_printables(self, query: str) -> List[Dict]:
@@ -304,41 +306,49 @@ Saves money, faster results!
         if found_models:
             st.success(f"✅ Found {len(found_models)} existing models!")
             
-            # Show each model with direct action buttons
+            # Show each model with thumbnail
             for idx, model in enumerate(found_models):
                 with st.expander(f"📦 Option {idx + 1}: {model.get('name', 'Unnamed')}", expanded=(idx == 0)):
-                    st.markdown(f"**{model.get('name', 'Unnamed')}**")
-                    st.markdown(f"🔗 [View on website]({model.get('url')})")
-                    
-                    col1, col2 = st.columns([1, 1])
+                    col1, col2 = st.columns([1, 2])
                     
                     with col1:
-                        # Direct link to model page
-                        if st.button(f"🌐 Open Model Page", key=f"open_{idx}"):
-                            st.markdown(f"[Click here to open]({model.get('url')})")
-                            st.info("💡 Once open, download the STL/3MF file from that page and upload it here, or just use it directly!")
+                        # Show thumbnail
+                        thumbnail = model.get('thumbnail')
+                        if thumbnail:
+                            try:
+                                st.image(thumbnail, width=250, caption="Preview")
+                            except:
+                                st.warning("⚠️ Image failed to load")
                     
                     with col2:
-                        # Mark as used
-                        if st.button(f"✅ I'm Using This", key=f"used_{idx}"):
-                            st.session_state['history'].append({
-                                "request": user_input,
-                                "result": {
-                                    "success": True,
-                                    "source": "Existing Model",
-                                    "model_data": None,
-                                    "model_url": model.get('url'),
-                                    "file_format": "stl",
-                                    "cost": "FREE",
-                                    "model_name": model.get('name')
-                                }
-                            })
-                            st.success(f"✅ Marked as using: {model.get('name')}")
-                            st.rerun()
+                        st.markdown(f"### {model.get('name', 'Unnamed')}")
+                        st.markdown(f"🔗 [View full model page]({model.get('url')})")
+                        
+                        col_a, col_b = st.columns(2)
+                        
+                        with col_a:
+                            if st.button(f"✅ Use This (FREE)", key=f"use_{idx}", use_container_width=True):
+                                st.session_state['history'].append({
+                                    "request": user_input,
+                                    "result": {
+                                        "success": True,
+                                        "source": "Existing Model",
+                                        "model_data": None,
+                                        "model_url": model.get('url'),
+                                        "thumbnail": model.get('thumbnail'),
+                                        "file_format": "stl",
+                                        "cost": "FREE",
+                                        "model_name": model.get('name')
+                                    }
+                                })
+                                st.rerun()
+                        
+                        with col_b:
+                            st.link_button("🌐 Open Page", model.get('url'), use_container_width=True)
             
             st.markdown("---")
-            if st.button("❌ None of these work - Generate New Model ($0.25)"):
-                st.markdown("### 🎨 Step 2: Generating New Model")
+            if st.button("❌ None of these work - Generate New Model ($0.25)", use_container_width=True):
+                st.markdown("### 🎨 Generating New Model")
                 result = generator.generate(user_input)
                 st.session_state['history'].append({"request": user_input, "result": result})
                 st.rerun()
@@ -367,10 +377,19 @@ Saves money, faster results!
                 
                 if source == "Existing Model":
                     st.success(f"✅ Using existing model: {result.get('model_name')} • Cost: FREE!")
+                    
+                    # Show thumbnail if available
+                    thumbnail = result.get('thumbnail')
+                    if thumbnail:
+                        try:
+                            st.image(thumbnail, width=300)
+                        except:
+                            pass
+                    
                     model_url = result.get('model_url')
                     if model_url:
-                        st.markdown(f"🔗 [Download from: {model_url}]({model_url})")
-                        st.info("💡 Click the link above to download the STL file from the original source")
+                        st.link_button("🌐 Download from source", model_url, use_container_width=True)
+                        st.info("💡 Click above to download the STL file from Printables/Thingiverse")
                 else:
                     st.success(f"✅ Generated new model • Cost: {cost}")
                 
