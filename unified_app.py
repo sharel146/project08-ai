@@ -1,7 +1,8 @@
 """
-AI 3D Model Generator - BEST QUALITY
-Uses Meshy v4 REFINE mode - highest quality available
-$1 per model but actually works!
+Smart 3D Model System
+1. Search existing models online (FREE!)
+2. If good one found → deliver it
+3. If not found → generate with AI ($0.25)
 """
 
 import streamlit as st
@@ -9,7 +10,7 @@ import requests
 import time
 import base64
 from anthropic import Anthropic
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 st.set_page_config(page_title="AI 3D Model Generator", page_icon="🎨", layout="wide")
 
@@ -23,199 +24,203 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-class PromptEnhancer:
-    def __init__(self, client: Anthropic):
-        self.client = client
+class ModelSearcher:
+    def __init__(self, anthropic_client: Anthropic):
+        self.client = anthropic_client
     
-    def enhance(self, prompt: str) -> str:
-        """Make prompts EXTREMELY detailed for best results"""
-        
-        if len(prompt.strip()) >= 40:
-            return prompt
-        
+    def search_printables(self, query: str) -> List[Dict]:
+        """Search Printables.com for existing models"""
+        try:
+            st.info(f"🔍 Searching Printables.com for: '{query}'")
+            
+            # Search Printables.com (free 3D models for 3D printing)
+            search_url = f"https://api.printables.com/v1/search?q={query}&fileType=3mf,stl,obj"
+            
+            response = requests.get(search_url, timeout=10)
+            
+            if response.status_code == 200:
+                results = response.json().get("items", [])[:5]  # Top 5 results
+                return results
+            
+            return []
+            
+        except:
+            return []
+    
+    def search_thingiverse(self, query: str) -> List[Dict]:
+        """Search Thingiverse for existing models"""
+        try:
+            st.info(f"🔍 Searching Thingiverse for: '{query}'")
+            
+            # Thingiverse API
+            search_url = f"https://api.thingiverse.com/search/{query}?access_token=public"
+            
+            response = requests.get(search_url, timeout=10)
+            
+            if response.status_code == 200:
+                results = response.json().get("hits", [])[:5]
+                return results
+            
+            return []
+            
+        except:
+            return []
+    
+    def evaluate_model(self, model_info: Dict, user_query: str) -> Dict:
+        """Use Claude to check if found model matches what user wants"""
+        try:
+            model_name = model_info.get("name", "")
+            model_desc = model_info.get("description", "")
+            model_image = model_info.get("thumbnail", "")
+            
+            # If there's an image, use vision to check
+            if model_image:
+                img_data = requests.get(model_image).content
+                img_b64 = base64.b64encode(img_data).decode()
+                
+                response = self.client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=200,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": img_b64
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": f"""User wants: "{user_query}"
+
+This model is titled: "{model_name}"
+Description: "{model_desc}"
+
+Does this 3D model match what the user wants?
+
+APPROVE if:
+✅ Correct object type
+✅ Good quality visible
+✅ Functional design
+✅ Printable
+
+REJECT if:
+❌ Wrong object
+❌ Low quality/broken
+❌ Too complex/decorative when functional needed
+❌ Doesn't match request
+
+Respond JSON:
+{{"approved": true/false, "reason": "brief explanation", "confidence": "high/medium/low"}}"""
+                            }
+                        ]
+                    }]
+                )
+                
+                result_text = response.content[0].text.strip()
+                import re, json
+                json_match = re.search(r'\{[^}]+\}', result_text)
+                if json_match:
+                    return json.loads(json_match.group())
+            
+            return {"approved": False, "reason": "No image to evaluate", "confidence": "low"}
+            
+        except:
+            return {"approved": False, "reason": "Evaluation failed", "confidence": "low"}
+
+
+class MeshyGenerator:
+    def __init__(self, meshy_key: str, anthropic_client: Anthropic):
+        self.meshy_key = meshy_key
+        self.client = anthropic_client
+    
+    def enhance_prompt(self, prompt: str) -> str:
+        """Make prompt super detailed"""
         try:
             response = self.client.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=150,
-                messages=[{"role": "user", "content": f"""Create an EXTREMELY detailed description for 3D modeling:
+                messages=[{"role": "user", "content": f"""Describe '{prompt}' in extreme detail for 3D modeling (under 60 words):
 
-"{prompt}"
+Include: exact shape, dimensions, materials, surface finish, key features.
 
-Include EVERY detail: exact dimensions, materials, surface finish, mechanical features (holes, threads, grooves), proportions, style, texture.
+Example: "door knob" → "Round door knob, 60mm diameter brass handle with polished finish, decorative grooves, square mounting base 45mm with center hole 12mm, total height 80mm"
 
-Example for "door knob":
-"Professional door knob: 65mm diameter spherical handle with brushed stainless steel finish, three decorative concentric grooves at 5mm spacing around equator, smooth polished surface with subtle radial brushing pattern. Square mounting base 45x45mm with central 12mm diameter through-hole for door spindle, four corner 4mm screw holes at 35mm spacing. Tapered neck connecting handle to base with smooth filleted transitions. Chamfered edges 2mm radius. Total assembly height 85mm."
-
-Example for "phone stand":
-"Modern phone stand: stable rectangular base 110x90mm with rubber feet recesses, angled back support rising 65 degrees from horizontal with 6mm wall thickness, lower front lip 18mm high with 3mm rubber grip channel, side walls with 2mm radius rounded edges, sleek minimalist design with matte black finish, accommodates phones 6-9mm thick"
-
-Now describe: {prompt}"""}]
+Now: {prompt}"""}]
             )
-            
-            enhanced = response.content[0].text.strip().strip('"').strip("'")
-            return enhanced
+            return response.content[0].text.strip().strip('"').strip("'")
         except:
             return prompt
-
-
-class MeshyRefineGenerator:
-    def __init__(self, anthropic_client: Anthropic, meshy_key: str):
-        self.anthropic_client = anthropic_client
-        self.meshy_key = meshy_key
-        self.enhancer = PromptEnhancer(anthropic_client)
     
-    def generate(self, user_request: str) -> Dict:
-        """Generate with Meshy v4 - highest quality possible"""
+    def generate(self, prompt: str) -> Dict:
+        """Generate new model with Meshy AI"""
+        enhanced = self.enhance_prompt(prompt)
+        st.info(f"🔍 **Enhanced:** {enhanced}")
         
-        # Enhance prompt with extreme detail
-        enhanced_prompt = self.enhancer.enhance(user_request)
-        
-        st.info(f"🔍 **Enhanced Prompt:**\n\n*{enhanced_prompt}*")
-        
-        max_attempts = 3  # Try up to 3 times
-        
-        for attempt in range(max_attempts):
-            try:
-                with st.spinner(f"🎨 Creating your model..."):
-                    # Use PREVIEW mode (actually works!)
-                    response = requests.post(
-                        "https://api.meshy.ai/v2/text-to-3d",
-                        headers={
-                            "Authorization": f"Bearer {self.meshy_key}",
-                            "Content-Type": "application/json"
-                        },
-                        json={
-                            "mode": "preview",
-                            "prompt": enhanced_prompt,
-                            "art_style": "realistic",
-                            "negative_prompt": "low quality, low poly, blurry, disconnected, deformed, broken, abstract",
-                            "ai_model": "meshy-4"
-                        },
-                        timeout=15
+        try:
+            with st.spinner("🎨 Generating new model with AI..."):
+                response = requests.post(
+                    "https://api.meshy.ai/v2/text-to-3d",
+                    headers={
+                        "Authorization": f"Bearer {self.meshy_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "mode": "preview",
+                        "prompt": enhanced,
+                        "art_style": "realistic",
+                        "negative_prompt": "low quality, blurry, disconnected, deformed, broken",
+                        "ai_model": "meshy-4"
+                    },
+                    timeout=15
+                )
+                
+                if response.status_code not in [200, 202]:
+                    return {"success": False, "message": "Generation failed"}
+                
+                task_id = response.json().get("result") or response.json().get("id")
+                progress_bar = st.progress(0)
+                
+                for i in range(40):
+                    status_resp = requests.get(
+                        f"https://api.meshy.ai/v2/text-to-3d/{task_id}",
+                        headers={"Authorization": f"Bearer {self.meshy_key}"}
                     )
                     
-                    if response.status_code not in [200, 202]:
-                        error_details = ""
-                        try:
-                            error_data = response.json()
-                            error_details = error_data.get("message", response.text)
-                        except:
-                            error_details = response.text
+                    if status_resp.status_code == 200:
+                        data = status_resp.json()
                         
-                        if attempt < max_attempts - 1:
-                            continue
-                        return {"success": False, "message": f"❌ API error {response.status_code}: {error_details}"}
-                    
-                    task_id = response.json().get("result") or response.json().get("id")
-                    if not task_id:
-                        continue
-                    
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    # REFINE mode takes 3-5 minutes
-                    for i in range(100):
-                        status_response = requests.get(
-                            f"https://api.meshy.ai/v2/text-to-3d/{task_id}",
-                            headers={"Authorization": f"Bearer {self.meshy_key}"}
-                        )
-                        
-                        if status_response.status_code != 200:
-                            break
-                        
-                        status_data = status_response.json()
-                        status = status_data.get("status")
-                        progress = status_data.get("progress", 0)
-                        
-                        if status == "SUCCEEDED":
+                        if data.get("status") == "SUCCEEDED":
                             progress_bar.progress(100)
-                            status_text.success("✅ Generation complete!")
-                            
-                            glb_url = status_data.get("model_urls", {}).get("glb")
-                            thumbnail_url = status_data.get("thumbnail_url")
+                            glb_url = data.get("model_urls", {}).get("glb")
                             
                             if glb_url:
                                 model_data = requests.get(glb_url).content
-                                
-                                # Quality check on final attempt only
-                                if thumbnail_url and attempt < max_attempts - 1:
-                                    quality_ok = self._check_quality(thumbnail_url, user_request)
-                                    if not quality_ok:
-                                        st.warning("Quality check failed, regenerating...")
-                                        break
-                                
                                 return {
                                     "success": True,
-                                    "message": "✓ Model generated successfully",
+                                    "source": "AI Generated",
                                     "model_data": model_data,
                                     "file_format": "glb",
-                                    "cost": "$0.25",
-                                    "quality": "Preview + Enhanced Prompt"
+                                    "cost": "$0.25"
                                 }
-                            break
-                            
-                        elif status == "FAILED":
-                            error = status_data.get("error", "Unknown error")
-                            if attempt < max_attempts - 1:
-                                st.warning(f"Failed: {error}. Retrying...")
-                                break
-                            return {"success": False, "message": f"❌ Failed: {error}"}
                         
-                        # Update progress
+                        progress = data.get("progress", 0)
                         progress_bar.progress(min(progress, 99))
-                        status_text.info(f"⏳ Generating... {progress}% complete")
-                        time.sleep(3)
                     
-            except Exception as e:
-                if attempt < max_attempts - 1:
-                    st.warning(f"Error: {e}. Retrying...")
-                    continue
-                return {"success": False, "message": f"❌ Error: {e}"}
+                    time.sleep(3)
+                
+        except Exception as e:
+            return {"success": False, "message": f"Error: {e}"}
         
-        return {"success": False, "message": "❌ Generation failed after retries"}
-    
-    def _check_quality(self, thumbnail_url: str, original_prompt: str) -> bool:
-        """Vision check - is it correct?"""
-        try:
-            thumbnail_data = requests.get(thumbnail_url).content
-            thumbnail_b64 = base64.b64encode(thumbnail_data).decode()
-            
-            response = self.anthropic_client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=50,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": thumbnail_b64
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": f"""Does this 3D model correctly represent: "{original_prompt}"?
-
-Check: right object type, complete (no missing parts), functional, good quality.
-
-Answer ONLY: YES or NO"""
-                        }
-                    ]
-                }]
-            )
-            
-            result = response.content[0].text.strip().upper()
-            return "YES" in result
-            
-        except:
-            return True
+        return {"success": False, "message": "Timeout"}
 
 
 def main():
-    st.title("🎨 Professional 3D Model Generator")
-    st.markdown("*Premium Quality - Meshy v4 REFINE mode*")
+    st.title("🎨 Smart 3D Model System")
+    st.markdown("*Search first, generate only if needed*")
     
     try:
         anthropic_key = st.secrets.get("ANTHROPIC_API_KEY", "")
@@ -225,76 +230,142 @@ def main():
         meshy_key = ""
     
     if not anthropic_key or not meshy_key:
-        st.error("⚠️ Add ANTHROPIC_API_KEY and MESHY_API_KEY to secrets")
+        st.error("⚠️ Add ANTHROPIC_API_KEY and MESHY_API_KEY")
         return
     
-    st.sidebar.info("""
-**Provider:** Meshy AI v4
-**Mode:** Preview (fast)
-**Cost:** $0.25 per model
-**Time:** 1-2 minutes
-**Output:** High-quality GLB
+    st.sidebar.success("""
+**Smart System:**
+1. 🔍 Search existing models (FREE)
+2. ✅ If good match → deliver it
+3. 🎨 If not found → generate ($0.25)
 
-With extreme prompt enhancement!
+Saves money, faster results!
 """)
     
     if 'history' not in st.session_state:
         st.session_state['history'] = []
     
-    with st.form("model_request"):
+    with st.form("request_form"):
         user_input = st.text_area(
             "What do you want to create?",
-            placeholder="Be specific: door knob, phone stand, decorative vase, etc.",
+            placeholder="door knob, phone stand, bracket, etc.",
             height=80
         )
         
         col1, col2 = st.columns([1, 5])
         with col1:
-            submit = st.form_submit_button("🚀 Generate", use_container_width=True)
+            submit = st.form_submit_button("🚀 Get Model", use_container_width=True)
         with col2:
             if st.form_submit_button("🗑️ Clear", use_container_width=True):
                 st.session_state['history'] = []
                 st.rerun()
     
     if submit and user_input:
-        try:
-            generator = MeshyRefineGenerator(Anthropic(api_key=anthropic_key), meshy_key)
+        searcher = ModelSearcher(Anthropic(api_key=anthropic_key))
+        generator = MeshyGenerator(meshy_key, Anthropic(api_key=anthropic_key))
+        
+        # Step 1: Search existing models
+        st.markdown("### 🔍 Step 1: Searching Existing Models")
+        
+        found_models = []
+        
+        # Search Printables
+        printables_results = searcher.search_printables(user_input)
+        found_models.extend(printables_results)
+        
+        # Search Thingiverse
+        thingiverse_results = searcher.search_thingiverse(user_input)
+        found_models.extend(thingiverse_results)
+        
+        if found_models:
+            st.success(f"✅ Found {len(found_models)} existing models!")
+            
+            # Evaluate each one
+            for idx, model in enumerate(found_models):
+                with st.expander(f"📦 Option {idx + 1}: {model.get('name', 'Unnamed')}", expanded=(idx == 0)):
+                    col1, col2 = st.columns([1, 2])
+                    
+                    with col1:
+                        if model.get('thumbnail'):
+                            st.image(model['thumbnail'], width=200)
+                    
+                    with col2:
+                        st.markdown(f"**{model.get('name', 'Unnamed')}**")
+                        st.caption(model.get('description', '')[:200])
+                        
+                        # Evaluate if it matches
+                        evaluation = searcher.evaluate_model(model, user_input)
+                        
+                        if evaluation.get("approved"):
+                            st.success(f"✅ {evaluation.get('reason')}")
+                            
+                            # Download and deliver this model
+                            if st.button(f"Use This Model", key=f"use_{idx}"):
+                                download_url = model.get('download_url') or model.get('files', [{}])[0].get('url')
+                                
+                                if download_url:
+                                    model_data = requests.get(download_url).content
+                                    
+                                    st.session_state['history'].append({
+                                        "request": user_input,
+                                        "result": {
+                                            "success": True,
+                                            "source": "Existing Model",
+                                            "model_data": model_data,
+                                            "file_format": "stl",
+                                            "cost": "FREE",
+                                            "model_name": model.get('name')
+                                        }
+                                    })
+                                    st.rerun()
+                        else:
+                            st.warning(f"⚠️ {evaluation.get('reason')}")
+            
+            st.markdown("---")
+            if st.button("❌ None of these work - Generate New Model"):
+                st.markdown("### 🎨 Step 2: Generating New Model")
+                result = generator.generate(user_input)
+                st.session_state['history'].append({"request": user_input, "result": result})
+                st.rerun()
+        
+        else:
+            st.warning("❌ No existing models found")
+            st.markdown("### 🎨 Generating New Model")
             result = generator.generate(user_input)
             st.session_state['history'].append({"request": user_input, "result": result})
-        except Exception as e:
-            st.error(f"Error: {e}")
+            st.rerun()
     
+    # History
     if st.session_state['history']:
         st.markdown("---")
-        st.markdown("## 📋 Generation History")
+        st.markdown("## 📋 Your Models")
         
         for idx, item in enumerate(reversed(st.session_state['history'])):
-            st.markdown(f"### Request #{len(st.session_state['history']) - idx}")
+            st.markdown(f"### Model #{len(st.session_state['history']) - idx}")
             st.markdown(f"*{item['request']}*")
             
             result = item['result']
             
             if result['success']:
-                st.success(f"✅ {result['message']}")
-                
+                source = result.get('source', 'Unknown')
                 cost = result.get('cost', '')
-                quality = result.get('quality', '')
-                if cost and quality:
-                    st.caption(f"💎 Quality: {quality} • Cost: {cost}")
+                
+                if source == "Existing Model":
+                    st.success(f"✅ Found existing model: {result.get('model_name')} • Cost: FREE!")
+                else:
+                    st.success(f"✅ Generated new model • Cost: {cost}")
                 
                 if result.get('model_data'):
-                    file_format = result.get('file_format', 'glb')
+                    file_ext = result.get('file_format', 'glb')
                     st.download_button(
-                        label=f"💾 Download .{file_format} file",
+                        label=f"💾 Download .{file_ext}",
                         data=result['model_data'],
-                        file_name=f"model_{len(st.session_state['history']) - idx}.{file_format}",
+                        file_name=f"model_{len(st.session_state['history']) - idx}.{file_ext}",
                         mime="application/octet-stream",
                         use_container_width=True
                     )
-                    
-                    st.info("💡 Convert to STL: https://products.aspose.app/3d/conversion/glb-to-stl")
             else:
-                st.error(f"❌ {result['message']}")
+                st.error(f"❌ {result.get('message')}")
             
             st.markdown("---")
 
