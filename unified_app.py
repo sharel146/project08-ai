@@ -29,41 +29,96 @@ class ModelSearcher:
         self.client = anthropic_client
     
     def search_printables(self, query: str) -> List[Dict]:
-        """Search Printables.com for existing models"""
+        """Search Printables.com by scraping search results"""
         try:
             st.info(f"🔍 Searching Printables.com for: '{query}'")
             
-            # Search Printables.com (free 3D models for 3D printing)
-            search_url = f"https://api.printables.com/v1/search?q={query}&fileType=3mf,stl,obj"
+            # Use actual search URL
+            search_url = f"https://www.printables.com/search/models?q={query.replace(' ', '+')}"
             
-            response = requests.get(search_url, timeout=10)
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            response = requests.get(search_url, headers=headers, timeout=10)
             
             if response.status_code == 200:
-                results = response.json().get("items", [])[:5]  # Top 5 results
-                return results
+                # Parse the HTML to extract model info
+                import re
+                html = response.text
+                
+                # Extract model cards - look for model links and thumbnails
+                # Printables uses data attributes and specific HTML structure
+                models = []
+                
+                # Find all model URLs
+                model_urls = re.findall(r'href="(/model/[^"]+)"', html)
+                # Find all thumbnail images
+                thumbnails = re.findall(r'<img[^>]+src="([^"]+)"[^>]*class="[^"]*ModelCard', html)
+                # Find all titles
+                titles = re.findall(r'<h2[^>]*class="[^"]*ModelCard__title[^>]*>([^<]+)</h2>', html)
+                
+                # Combine them
+                for i in range(min(5, len(model_urls))):  # Top 5
+                    if i < len(titles) and i < len(thumbnails):
+                        models.append({
+                            'name': titles[i].strip(),
+                            'url': f"https://www.printables.com{model_urls[i]}",
+                            'thumbnail': thumbnails[i] if thumbnails[i].startswith('http') else f"https://www.printables.com{thumbnails[i]}",
+                            'description': '',
+                            'download_url': f"https://www.printables.com{model_urls[i]}"
+                        })
+                
+                return models
             
             return []
             
-        except:
+        except Exception as e:
+            st.warning(f"Printables search error: {e}")
             return []
     
     def search_thingiverse(self, query: str) -> List[Dict]:
-        """Search Thingiverse for existing models"""
+        """Search Thingiverse by scraping"""
         try:
             st.info(f"🔍 Searching Thingiverse for: '{query}'")
             
-            # Thingiverse API
-            search_url = f"https://api.thingiverse.com/search/{query}?access_token=public"
+            search_url = f"https://www.thingiverse.com/search?q={query.replace(' ', '+')}&type=things"
             
-            response = requests.get(search_url, timeout=10)
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            response = requests.get(search_url, headers=headers, timeout=10)
             
             if response.status_code == 200:
-                results = response.json().get("hits", [])[:5]
-                return results
+                import re
+                html = response.text
+                
+                models = []
+                
+                # Extract thing URLs
+                thing_urls = re.findall(r'href="(/thing:\d+)"', html)
+                # Extract thumbnails
+                thumbnails = re.findall(r'<img[^>]+src="([^"]+)"[^>]*data-thing', html)
+                # Extract titles
+                titles = re.findall(r'<span class="thing-name">([^<]+)</span>', html)
+                
+                for i in range(min(5, len(thing_urls))):
+                    if i < len(titles):
+                        models.append({
+                            'name': titles[i].strip() if i < len(titles) else "Model",
+                            'url': f"https://www.thingiverse.com{thing_urls[i]}",
+                            'thumbnail': thumbnails[i] if i < len(thumbnails) and thumbnails[i].startswith('http') else "https://via.placeholder.com/300x200",
+                            'description': '',
+                            'download_url': f"https://www.thingiverse.com{thing_urls[i]}"
+                        })
+                
+                return models
             
             return []
             
-        except:
+        except Exception as e:
+            st.warning(f"Thingiverse search error: {e}")
             return []
     
     def evaluate_model(self, model_info: Dict, user_query: str) -> Dict:
