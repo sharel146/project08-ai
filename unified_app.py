@@ -28,98 +28,75 @@ class ModelSearcher:
     def __init__(self, anthropic_client: Anthropic):
         self.client = anthropic_client
     
-    def search_printables(self, query: str) -> List[Dict]:
-        """Search Printables.com by scraping search results"""
+    def search_models(self, query: str) -> List[Dict]:
+        """Search for 3D models using web search"""
         try:
-            st.info(f"🔍 Searching Printables.com for: '{query}'")
+            st.info(f"🔍 Searching for 3D models: '{query}'")
             
-            # Use actual search URL
-            search_url = f"https://www.printables.com/search/models?q={query.replace(' ', '+')}"
+            # Use Anthropic's web search to find models
+            search_query = f"{query} 3D model STL free printables.com OR thingiverse.com"
             
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
+            # Make web search request
+            import json
+            search_result = self.client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2000,
+                tools=[{
+                    "type": "web_search_20250305",
+                    "name": "web_search"
+                }],
+                messages=[{
+                    "role": "user",
+                    "content": f"Search for: {search_query}. Find at least 5 different 3D printable models."
+                }]
+            )
             
-            response = requests.get(search_url, headers=headers, timeout=10)
+            # Process results
+            models = []
             
-            if response.status_code == 200:
-                # Parse the HTML to extract model info
-                import re
-                html = response.text
+            for block in search_result.content:
+                if hasattr(block, 'type') and block.type == 'tool_use':
+                    # Extract search results
+                    if hasattr(block, 'name') and block.name == 'web_search':
+                        # Results are in the next assistant turn
+                        pass
+            
+            # Parse the response for model links
+            response_text = ""
+            for block in search_result.content:
+                if hasattr(block, 'text'):
+                    response_text += block.text
+            
+            # Extract URLs from response
+            import re
+            urls = re.findall(r'https?://(?:www\.)?(?:printables\.com|thingiverse\.com)/[^\s\)]+', response_text)
+            
+            for idx, url in enumerate(urls[:5]):  # Top 5
+                # Extract title from URL
+                title_match = re.search(r'/([^/]+)/?$', url)
+                title = title_match.group(1).replace('-', ' ').replace('_', ' ').title() if title_match else f"Model {idx+1}"
                 
-                # Extract model cards - look for model links and thumbnails
-                # Printables uses data attributes and specific HTML structure
-                models = []
-                
-                # Find all model URLs
-                model_urls = re.findall(r'href="(/model/[^"]+)"', html)
-                # Find all thumbnail images
-                thumbnails = re.findall(r'<img[^>]+src="([^"]+)"[^>]*class="[^"]*ModelCard', html)
-                # Find all titles
-                titles = re.findall(r'<h2[^>]*class="[^"]*ModelCard__title[^>]*>([^<]+)</h2>', html)
-                
-                # Combine them
-                for i in range(min(5, len(model_urls))):  # Top 5
-                    if i < len(titles) and i < len(thumbnails):
-                        models.append({
-                            'name': titles[i].strip(),
-                            'url': f"https://www.printables.com{model_urls[i]}",
-                            'thumbnail': thumbnails[i] if thumbnails[i].startswith('http') else f"https://www.printables.com{thumbnails[i]}",
-                            'description': '',
-                            'download_url': f"https://www.printables.com{model_urls[i]}"
-                        })
-                
-                return models
+                models.append({
+                    'name': title,
+                    'url': url,
+                    'thumbnail': None,  # Will be fetched later
+                    'description': '',
+                    'download_url': url
+                })
             
-            return []
+            return models
             
         except Exception as e:
-            st.warning(f"Printables search error: {e}")
+            st.warning(f"Search error: {e}")
             return []
     
+    def search_printables(self, query: str) -> List[Dict]:
+        """Deprecated - use search_models instead"""
+        return []
+    
     def search_thingiverse(self, query: str) -> List[Dict]:
-        """Search Thingiverse by scraping"""
-        try:
-            st.info(f"🔍 Searching Thingiverse for: '{query}'")
-            
-            search_url = f"https://www.thingiverse.com/search?q={query.replace(' ', '+')}&type=things"
-            
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            
-            response = requests.get(search_url, headers=headers, timeout=10)
-            
-            if response.status_code == 200:
-                import re
-                html = response.text
-                
-                models = []
-                
-                # Extract thing URLs
-                thing_urls = re.findall(r'href="(/thing:\d+)"', html)
-                # Extract thumbnails
-                thumbnails = re.findall(r'<img[^>]+src="([^"]+)"[^>]*data-thing', html)
-                # Extract titles
-                titles = re.findall(r'<span class="thing-name">([^<]+)</span>', html)
-                
-                for i in range(min(5, len(thing_urls))):
-                    if i < len(titles):
-                        models.append({
-                            'name': titles[i].strip() if i < len(titles) else "Model",
-                            'url': f"https://www.thingiverse.com{thing_urls[i]}",
-                            'thumbnail': thumbnails[i] if i < len(thumbnails) and thumbnails[i].startswith('http') else "https://via.placeholder.com/300x200",
-                            'description': '',
-                            'download_url': f"https://www.thingiverse.com{thing_urls[i]}"
-                        })
-                
-                return models
-            
-            return []
-            
-        except Exception as e:
-            st.warning(f"Thingiverse search error: {e}")
-            return []
+        """Deprecated - use search_models instead"""
+        return []
     
     def evaluate_model(self, model_info: Dict, user_query: str) -> Dict:
         """Use Claude to check if found model matches what user wants"""
@@ -322,15 +299,7 @@ Saves money, faster results!
         # Step 1: Search existing models
         st.markdown("### 🔍 Step 1: Searching Existing Models")
         
-        found_models = []
-        
-        # Search Printables
-        printables_results = searcher.search_printables(user_input)
-        found_models.extend(printables_results)
-        
-        # Search Thingiverse
-        thingiverse_results = searcher.search_thingiverse(user_input)
-        found_models.extend(thingiverse_results)
+        found_models = searcher.search_models(user_input)
         
         if found_models:
             st.success(f"✅ Found {len(found_models)} existing models!")
