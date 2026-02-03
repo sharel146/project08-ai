@@ -136,11 +136,15 @@ def main():
     if 'history' not in st.session_state:
         st.session_state['history'] = []
     
+    if 'current_query' not in st.session_state:
+        st.session_state['current_query'] = None
+    
     with st.form("request_form"):
         user_input = st.text_area(
             "What do you want to create?",
             placeholder="door knob, phone stand, bracket, etc.",
-            height=80
+            height=80,
+            value=st.session_state.get('current_query', '') or ''
         )
         
         col1, col2 = st.columns([1, 5])
@@ -149,14 +153,22 @@ def main():
         with col2:
             if st.form_submit_button("🗑️ Clear", use_container_width=True):
                 st.session_state['history'] = []
+                st.session_state['current_query'] = None
                 st.rerun()
     
+    # Store query when form submitted
     if submit and user_input:
+        st.session_state['current_query'] = user_input
+    
+    # Show search results if we have a query
+    if st.session_state['current_query']:
+        query = st.session_state['current_query']
+        
         st.markdown("---")
         st.markdown("## 🔍 Step 1: Check Existing Models")
         
         # Create search URLs
-        query_encoded = user_input.replace(' ', '+')
+        query_encoded = query.replace(' ', '+')
         printables_url = f"https://www.printables.com/search/models?q={query_encoded}"
         thingiverse_url = f"https://www.thingiverse.com/search?q={query_encoded}&type=things"
         
@@ -187,10 +199,10 @@ OR if you don't find anything good:
         st.markdown("---")
         st.markdown("## 🎨 Step 2: Generate New Model")
         
-        if st.button("❌ Didn't find anything good - Generate with AI ($0.25)", use_container_width=True):
+        if st.button("❌ Didn't find anything good - Generate with AI ($0.25)", use_container_width=True, key="generate_btn"):
             generator = MeshyGenerator(meshy_key, Anthropic(api_key=anthropic_key))
-            result = generator.generate(user_input)
-            st.session_state['history'].append({"request": user_input, "result": result})
+            result = generator.generate(query)
+            st.session_state['history'].append({"request": query, "result": result})
             st.rerun()
     
     # History
