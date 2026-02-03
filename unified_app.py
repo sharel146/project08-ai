@@ -304,49 +304,40 @@ Saves money, faster results!
         if found_models:
             st.success(f"✅ Found {len(found_models)} existing models!")
             
-            # Evaluate each one
+            # Show each model with direct action buttons
             for idx, model in enumerate(found_models):
                 with st.expander(f"📦 Option {idx + 1}: {model.get('name', 'Unnamed')}", expanded=(idx == 0)):
-                    col1, col2 = st.columns([1, 2])
+                    st.markdown(f"**{model.get('name', 'Unnamed')}**")
+                    st.markdown(f"🔗 [View on website]({model.get('url')})")
+                    
+                    col1, col2 = st.columns([1, 1])
                     
                     with col1:
-                        if model.get('thumbnail'):
-                            st.image(model['thumbnail'], width=200)
+                        # Direct link to model page
+                        if st.button(f"🌐 Open Model Page", key=f"open_{idx}"):
+                            st.markdown(f"[Click here to open]({model.get('url')})")
+                            st.info("💡 Once open, download the STL/3MF file from that page and upload it here, or just use it directly!")
                     
                     with col2:
-                        st.markdown(f"**{model.get('name', 'Unnamed')}**")
-                        st.caption(model.get('description', '')[:200])
-                        
-                        # Evaluate if it matches
-                        evaluation = searcher.evaluate_model(model, user_input)
-                        
-                        if evaluation.get("approved"):
-                            st.success(f"✅ {evaluation.get('reason')}")
-                            
-                            # Download and deliver this model
-                            if st.button(f"Use This Model", key=f"use_{idx}"):
-                                download_url = model.get('download_url') or model.get('files', [{}])[0].get('url')
-                                
-                                if download_url:
-                                    model_data = requests.get(download_url).content
-                                    
-                                    st.session_state['history'].append({
-                                        "request": user_input,
-                                        "result": {
-                                            "success": True,
-                                            "source": "Existing Model",
-                                            "model_data": model_data,
-                                            "file_format": "stl",
-                                            "cost": "FREE",
-                                            "model_name": model.get('name')
-                                        }
-                                    })
-                                    st.rerun()
-                        else:
-                            st.warning(f"⚠️ {evaluation.get('reason')}")
+                        # Mark as used
+                        if st.button(f"✅ I'm Using This", key=f"used_{idx}"):
+                            st.session_state['history'].append({
+                                "request": user_input,
+                                "result": {
+                                    "success": True,
+                                    "source": "Existing Model",
+                                    "model_data": None,
+                                    "model_url": model.get('url'),
+                                    "file_format": "stl",
+                                    "cost": "FREE",
+                                    "model_name": model.get('name')
+                                }
+                            })
+                            st.success(f"✅ Marked as using: {model.get('name')}")
+                            st.rerun()
             
             st.markdown("---")
-            if st.button("❌ None of these work - Generate New Model"):
+            if st.button("❌ None of these work - Generate New Model ($0.25)"):
                 st.markdown("### 🎨 Step 2: Generating New Model")
                 result = generator.generate(user_input)
                 st.session_state['history'].append({"request": user_input, "result": result})
@@ -375,7 +366,11 @@ Saves money, faster results!
                 cost = result.get('cost', '')
                 
                 if source == "Existing Model":
-                    st.success(f"✅ Found existing model: {result.get('model_name')} • Cost: FREE!")
+                    st.success(f"✅ Using existing model: {result.get('model_name')} • Cost: FREE!")
+                    model_url = result.get('model_url')
+                    if model_url:
+                        st.markdown(f"🔗 [Download from: {model_url}]({model_url})")
+                        st.info("💡 Click the link above to download the STL file from the original source")
                 else:
                     st.success(f"✅ Generated new model • Cost: {cost}")
                 
