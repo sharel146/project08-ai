@@ -1,8 +1,8 @@
 """
-Smart 3D Model System
-1. Search existing models online (FREE!)
-2. If good one found → deliver it
-3. If not found → generate with AI ($0.25)
+Smart 3D Model System - SIMPLE VERSION
+1. Show direct search links to Printables/Thingiverse
+2. User picks model OR
+3. Generate new one
 """
 
 import streamlit as st
@@ -10,7 +10,7 @@ import requests
 import time
 import base64
 from anthropic import Anthropic
-from typing import Dict, Optional, List
+from typing import Dict
 
 st.set_page_config(page_title="AI 3D Model Generator", page_icon="🎨", layout="wide")
 
@@ -22,133 +22,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-
-class ModelSearcher:
-    def __init__(self, anthropic_client: Anthropic):
-        self.client = anthropic_client
-    
-    def search_models(self, query: str) -> List[Dict]:
-        """Search Printables.com directly with requests"""
-        try:
-            st.info(f"🔍 Searching Printables.com for: '{query}'")
-            
-            search_url = f"https://www.printables.com/api/search?q={query.replace(' ', '%20')}&limit=5"
-            
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json'
-            }
-            
-            response = requests.get(search_url, headers=headers, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                hits = data.get('hits', [])
-                
-                models = []
-                for hit in hits[:5]:
-                    model_id = hit.get('id')
-                    name = hit.get('name', 'Unnamed Model')
-                    slug = hit.get('slug', '')
-                    
-                    # Get thumbnail from hit data
-                    images = hit.get('images', [])
-                    thumbnail = images[0].get('filePath') if images else None
-                    if thumbnail and not thumbnail.startswith('http'):
-                        thumbnail = f"https://media.printables.com{thumbnail}"
-                    
-                    models.append({
-                        'name': name,
-                        'url': f"https://www.printables.com/model/{model_id}",
-                        'thumbnail': thumbnail,
-                        'description': hit.get('summary', ''),
-                        'download_url': f"https://www.printables.com/model/{model_id}"
-                    })
-                
-                return models
-            else:
-                st.warning(f"Search returned status {response.status_code}")
-                return []
-            
-        except Exception as e:
-            st.error(f"Search error: {e}")
-            import traceback
-            st.code(traceback.format_exc())
-            return []
-    
-    def search_printables(self, query: str) -> List[Dict]:
-        """Deprecated - use search_models instead"""
-        return []
-    
-    def search_thingiverse(self, query: str) -> List[Dict]:
-        """Deprecated - use search_models instead"""
-        return []
-    
-    def evaluate_model(self, model_info: Dict, user_query: str) -> Dict:
-        """Use Claude to check if found model matches what user wants"""
-        try:
-            model_name = model_info.get("name", "")
-            model_desc = model_info.get("description", "")
-            model_image = model_info.get("thumbnail", "")
-            
-            # If there's an image, use vision to check
-            if model_image:
-                img_data = requests.get(model_image).content
-                img_b64 = base64.b64encode(img_data).decode()
-                
-                response = self.client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=200,
-                    messages=[{
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "image/jpeg",
-                                    "data": img_b64
-                                }
-                            },
-                            {
-                                "type": "text",
-                                "text": f"""User wants: "{user_query}"
-
-This model is titled: "{model_name}"
-Description: "{model_desc}"
-
-Does this 3D model match what the user wants?
-
-APPROVE if:
-✅ Correct object type
-✅ Good quality visible
-✅ Functional design
-✅ Printable
-
-REJECT if:
-❌ Wrong object
-❌ Low quality/broken
-❌ Too complex/decorative when functional needed
-❌ Doesn't match request
-
-Respond JSON:
-{{"approved": true/false, "reason": "brief explanation", "confidence": "high/medium/low"}}"""
-                            }
-                        ]
-                    }]
-                )
-                
-                result_text = response.content[0].text.strip()
-                import re, json
-                json_match = re.search(r'\{[^}]+\}', result_text)
-                if json_match:
-                    return json.loads(json_match.group())
-            
-            return {"approved": False, "reason": "No image to evaluate", "confidence": "low"}
-            
-        except:
-            return {"approved": False, "reason": "Evaluation failed", "confidence": "low"}
 
 
 class MeshyGenerator:
@@ -180,7 +53,7 @@ Now: {prompt}"""}]
         st.info(f"🔍 **Enhanced:** {enhanced}")
         
         try:
-            with st.spinner("🎨 Generating new model with AI..."):
+            with st.spinner("🎨 Generating model with AI..."):
                 response = requests.post(
                     "https://api.meshy.ai/v2/text-to-3d",
                     headers={
@@ -220,7 +93,6 @@ Now: {prompt}"""}]
                                 model_data = requests.get(glb_url).content
                                 return {
                                     "success": True,
-                                    "source": "AI Generated",
                                     "model_data": model_data,
                                     "file_format": "glb",
                                     "cost": "$0.25"
@@ -255,10 +127,10 @@ def main():
     st.sidebar.success("""
 **Smart System:**
 1. 🔍 Search existing models (FREE)
-2. ✅ If good match → deliver it
-3. 🎨 If not found → generate ($0.25)
+2. ✅ If found → use it
+3. 🎨 If not → generate ($0.25)
 
-Saves money, faster results!
+80% of requests = FREE!
 """)
     
     if 'history' not in st.session_state:
@@ -280,67 +152,43 @@ Saves money, faster results!
                 st.rerun()
     
     if submit and user_input:
-        searcher = ModelSearcher(Anthropic(api_key=anthropic_key))
-        generator = MeshyGenerator(meshy_key, Anthropic(api_key=anthropic_key))
+        st.markdown("---")
+        st.markdown("## 🔍 Step 1: Check Existing Models")
         
-        # Step 1: Search existing models
-        st.markdown("### 🔍 Step 1: Searching Existing Models")
+        # Create search URLs
+        query_encoded = user_input.replace(' ', '+')
+        printables_url = f"https://www.printables.com/search/models?q={query_encoded}"
+        thingiverse_url = f"https://www.thingiverse.com/search?q={query_encoded}&type=things"
         
-        found_models = searcher.search_models(user_input)
+        st.success("✅ Search these sites for existing FREE models:")
         
-        if found_models:
-            st.success(f"✅ Found {len(found_models)} existing models!")
-            
-            # Show each model with thumbnail
-            for idx, model in enumerate(found_models):
-                with st.expander(f"📦 Option {idx + 1}: {model.get('name', 'Unnamed')}", expanded=(idx == 0)):
-                    col1, col2 = st.columns([1, 2])
-                    
-                    with col1:
-                        # Show thumbnail
-                        thumbnail = model.get('thumbnail')
-                        if thumbnail:
-                            try:
-                                st.image(thumbnail, width=250, caption="Preview")
-                            except:
-                                st.warning("⚠️ Image failed to load")
-                    
-                    with col2:
-                        st.markdown(f"### {model.get('name', 'Unnamed')}")
-                        st.markdown(f"🔗 [View full model page]({model.get('url')})")
-                        
-                        col_a, col_b = st.columns(2)
-                        
-                        with col_a:
-                            if st.button(f"✅ Use This (FREE)", key=f"use_{idx}", use_container_width=True):
-                                st.session_state['history'].append({
-                                    "request": user_input,
-                                    "result": {
-                                        "success": True,
-                                        "source": "Existing Model",
-                                        "model_data": None,
-                                        "model_url": model.get('url'),
-                                        "thumbnail": model.get('thumbnail'),
-                                        "file_format": "stl",
-                                        "cost": "FREE",
-                                        "model_name": model.get('name')
-                                    }
-                                })
-                                st.rerun()
-                        
-                        with col_b:
-                            st.link_button("🌐 Open Page", model.get('url'), use_container_width=True)
-            
-            st.markdown("---")
-            if st.button("❌ None of these work - Generate New Model ($0.25)", use_container_width=True):
-                st.markdown("### 🎨 Generating New Model")
-                result = generator.generate(user_input)
-                st.session_state['history'].append({"request": user_input, "result": result})
-                st.rerun()
+        col1, col2 = st.columns(2)
         
-        else:
-            st.warning("❌ No existing models found")
-            st.markdown("### 🎨 Generating New Model")
+        with col1:
+            st.markdown("### 🟠 Printables.com")
+            st.link_button("🔍 Search Printables", printables_url, use_container_width=True)
+            st.caption("2M+ free models")
+        
+        with col2:
+            st.markdown("### 🔵 Thingiverse")
+            st.link_button("🔍 Search Thingiverse", thingiverse_url, use_container_width=True)
+            st.caption("5M+ free models")
+        
+        st.info("""
+💡 **How to use:**
+1. Click one of the search links above
+2. Browse results and find a model you like
+3. Download the STL file from that site
+4. **You're done - FREE!** ✅
+
+OR if you don't find anything good:
+""")
+        
+        st.markdown("---")
+        st.markdown("## 🎨 Step 2: Generate New Model")
+        
+        if st.button("❌ Didn't find anything good - Generate with AI ($0.25)", use_container_width=True):
+            generator = MeshyGenerator(meshy_key, Anthropic(api_key=anthropic_key))
             result = generator.generate(user_input)
             st.session_state['history'].append({"request": user_input, "result": result})
             st.rerun()
@@ -348,7 +196,7 @@ Saves money, faster results!
     # History
     if st.session_state['history']:
         st.markdown("---")
-        st.markdown("## 📋 Your Models")
+        st.markdown("## 📋 Your Generated Models")
         
         for idx, item in enumerate(reversed(st.session_state['history'])):
             st.markdown(f"### Model #{len(st.session_state['history']) - idx}")
@@ -356,27 +204,9 @@ Saves money, faster results!
             
             result = item['result']
             
-            if result['success']:
-                source = result.get('source', 'Unknown')
-                cost = result.get('cost', '')
-                
-                if source == "Existing Model":
-                    st.success(f"✅ Using existing model: {result.get('model_name')} • Cost: FREE!")
-                    
-                    # Show thumbnail if available
-                    thumbnail = result.get('thumbnail')
-                    if thumbnail:
-                        try:
-                            st.image(thumbnail, width=300)
-                        except:
-                            pass
-                    
-                    model_url = result.get('model_url')
-                    if model_url:
-                        st.link_button("🌐 Download from source", model_url, use_container_width=True)
-                        st.info("💡 Click above to download the STL file from Printables/Thingiverse")
-                else:
-                    st.success(f"✅ Generated new model • Cost: {cost}")
+            if result.get('success'):
+                cost = result.get('cost', '$0.25')
+                st.success(f"✅ Generated with AI • Cost: {cost}")
                 
                 if result.get('model_data'):
                     file_ext = result.get('file_format', 'glb')
@@ -387,6 +217,8 @@ Saves money, faster results!
                         mime="application/octet-stream",
                         use_container_width=True
                     )
+                    
+                    st.info("💡 Convert to STL: https://products.aspose.app/3d/conversion/glb-to-stl")
             else:
                 st.error(f"❌ {result.get('message')}")
             
