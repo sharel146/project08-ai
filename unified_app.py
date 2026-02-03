@@ -30,20 +30,43 @@ class MeshyGenerator:
         self.client = anthropic_client
     
     def enhance_prompt(self, prompt: str) -> str:
-        """Make prompt super detailed"""
+        """Add dimensions ONLY - keep it smooth and simple"""
         try:
             response = self.client.messages.create(
                 model="claude-sonnet-4-20250514",
-                max_tokens=150,
-                messages=[{"role": "user", "content": f"""Describe '{prompt}' in extreme detail for 3D modeling (under 60 words):
+                max_tokens=80,
+                messages=[{"role": "user", "content": f"""Add ONLY dimensions to this 3D modeling request. Keep it simple and smooth.
 
-Include: exact shape, dimensions, materials, surface finish, key features.
+Request: "{prompt}"
 
-Example: "door knob" → "Round door knob, 60mm diameter brass handle with polished finish, decorative grooves, square mounting base 45mm with center hole 12mm, total height 80mm"
+RULES:
+- Add ONLY: dimensions (mm), basic proportions
+- DO NOT add: materials, textures, finishes, colors, patterns
+- DO NOT change the core object type
+- Keep under 40 words
+- Assume smooth, clean geometry
 
-Now: {prompt}"""}]
+Example:
+"ping pong paddle" → "Ping pong paddle: 150mm diameter circular blade, 6mm thick, handle 100mm long × 25mm diameter, smooth surfaces"
+
+NOT: "wooden paddle with rubber coating" (no materials!)
+NOT: "rectangular paddle" (don't change shape!)
+
+Now enhance: {prompt}"""}]
             )
-            return response.content[0].text.strip().strip('"').strip("'")
+            enhanced = response.content[0].text.strip().strip('"').strip("'")
+            
+            # Safety: reject if it added shape words or materials
+            bad_words = ['rectangular', 'square', 'wooden', 'metal', 'plastic', 'rubber', 
+                        'textured', 'matte', 'polished', 'glossy', 'brushed']
+            prompt_lower = prompt.lower()
+            enhanced_lower = enhanced.lower()
+            
+            for word in bad_words:
+                if word in enhanced_lower and word not in prompt_lower:
+                    return prompt  # Reject enhancement
+            
+            return enhanced
         except:
             return prompt
     
