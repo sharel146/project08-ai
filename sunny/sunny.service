@@ -1,0 +1,27 @@
+# systemd unit to run Sunny 24/7 on your PC (Linux).
+#
+# Setup:
+#   1. Edit the paths and User below to match your machine.
+#   2. cp sunny.service ~/.config/systemd/user/sunny.service   (user service)
+#      or sudo cp sunny.service /etc/systemd/system/sunny.service (system service)
+#   3. systemctl --user daemon-reload && systemctl --user enable --now sunny
+#   4. Logs: journalctl --user -u sunny -f
+#
+# On Windows, run `run.sh serve` in WSL, or use Task Scheduler to launch
+# `python -m sunny.main serve`. On macOS, a launchd plist plays the same role.
+
+[Unit]
+Description=Sunny personal AI assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/sunny
+EnvironmentFile=%h/sunny/.env
+ExecStart=/usr/bin/env python -m sunny.main serve
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

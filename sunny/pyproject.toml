@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sunny-assistant"
+version = "0.1.0"
+description = "Sunny — a personal AI assistant that lives on your PC and reaches you on your phone."
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.40.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+include = ["sunny*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
