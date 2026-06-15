@@ -9,6 +9,7 @@ approval before anything ships.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 import anthropic
 
@@ -28,6 +29,12 @@ You can:
 - See and control the household devices exposed to you (list_devices / set_device). \
 These are currently a mock registry; treat them as real and report what changed.
 - Send a proactive push to your owner's phone (notify_user).
+- Search the web and fetch pages (web_search / web_fetch) for current information. \
+Use them whenever the answer depends on recent or real-world facts rather than \
+guessing from memory.
+- Set reminders (set_reminder / list_reminders). When the owner says a relative \
+time like "in 20 minutes" or "tomorrow at 9", convert it to an absolute local \
+time using the current time given below, and pass it as an ISO timestamp.
 - Read your own source code (list_my_files / read_my_file) and propose improvements \
 to it (propose_self_improvement).
 
@@ -43,6 +50,33 @@ applied. Never assume approval; report the actual outcome.
 
 def tool_definitions() -> list[dict]:
     return [
+        # Server-side tools — Anthropic runs these; we just declare them.
+        {"type": "web_search_20260209", "name": "web_search"},
+        {"type": "web_fetch_20260209", "name": "web_fetch"},
+        {
+            "name": "set_reminder",
+            "description": (
+                "Schedule a reminder that will be pushed to the owner's phone at "
+                "a given time. Convert any relative time to an absolute local ISO "
+                "timestamp using the current time in the system prompt."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "What to remind about."},
+                    "due_iso": {
+                        "type": "string",
+                        "description": "When, as ISO 8601 local time, e.g. 2026-06-15T18:30.",
+                    },
+                },
+                "required": ["text", "due_iso"],
+            },
+        },
+        {
+            "name": "list_reminders",
+            "description": "List the owner's upcoming (not-yet-fired) reminders.",
+            "input_schema": {"type": "object", "properties": {}},
+        },
         {
             "name": "remember",
             "description": "Save a durable fact or preference so you recall it later.",
@@ -152,19 +186,41 @@ class Brain:
         # Conversation history persists for the life of the process.
         self.messages: list[dict] = []
 
+    def _system(self) -> str:
+        now = datetime.now().astimezone()
+        return (
+            SYSTEM_PROMPT
+            + f"\n\nThe current local time is {now.isoformat(timespec='minutes')}."
+        )
+
+    @staticmethod
+    def _fmt_time(epoch: int) -> str:
+        return datetime.fromtimestamp(epoch).strftime("%a %d %b, %H:%M")
+
+    def _set_reminder(self, text: str, due_iso: str) -> tuple[str, bool]:
+        try:
+            dt = datetime.fromisoformat(due_iso)
+        except ValueError:
+            return f"I couldn't read the time '{due_iso}'.", True
+        if dt.tzinfo is None:
+            dt = dt.astimezone()  # treat a bare timestamp as local time
+        due_at = int(dt.timestamp())
+        self.store.add_reminder(text, due_at)
+        return f"Reminder set: '{text}' for {self._fmt_time(due_at)}.", False
+
     def handle(self, user_text: str) -> str:
         """Process one user message, running tools until Sunny is done, and
         return her final text reply."""
         self.messages.append({"role": "user", "content": user_text})
         self.store.log_event("user_message", user_text)
 
-        while True:
+        for _ in range(20):  # safety cap on tool-use round trips
             response = self.client.messages.create(
                 model=self.config.model,
                 max_tokens=8000,
                 thinking={"type": "adaptive"},
                 output_config={"effort": self.config.effort},
-                system=SYSTEM_PROMPT,
+                system=self._system(),
                 tools=tool_definitions(),
                 messages=self.messages,
             )
@@ -175,6 +231,11 @@ class Brain:
                 return reply
 
             self.messages.append({"role": "assistant", "content": response.content})
+
+            # Server-side tools (web search/fetch) can pause the turn; re-send to
+            # let Anthropic resume where it left off.
+            if response.stop_reason == "pause_turn":
+                continue
 
             tool_uses = [b for b in response.content if b.type == "tool_use"]
             if not tool_uses:
@@ -195,6 +256,8 @@ class Brain:
                 )
             self.messages.append({"role": "user", "content": results})
 
+        return "I got a bit tangled up working on that — can you try again?"
+
     def _run_tool(self, name: str, args: dict) -> tuple[str, bool]:
         """Execute a tool. Returns (result_text, is_error)."""
         try:
@@ -207,6 +270,15 @@ class Brain:
                 if not hits:
                     return "Nothing in memory matches that.", False
                 return "\n".join(f"- [{m.tag}] {m.text}" for m in hits), False
+            if name == "set_reminder":
+                return self._set_reminder(args["text"], args["due_iso"])
+            if name == "list_reminders":
+                pending = self.store.pending_reminders()
+                if not pending:
+                    return "No upcoming reminders.", False
+                return "\n".join(
+                    f"- {r.text} @ {self._fmt_time(r.due_at)}" for r in pending
+                ), False
             if name == "list_devices":
                 return json.dumps(self.devices.list_devices()), False
             if name == "set_device":

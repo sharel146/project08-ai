@@ -62,6 +62,11 @@ def cmd_serve(config: Config) -> int:
     since = int(time.time())
     while True:
         try:
+            # Fire any reminders that have come due.
+            for rem in brain.store.due_reminders(int(time.time())):
+                brain.notifier.push(rem.text, title="Reminder", tags=["alarm_clock"])
+                brain.store.mark_fired(rem.id)
+
             for msg in brain.notifier.poll_inbound(since=since):
                 since = max(since, msg.time + 1)
                 text = msg.text.strip()

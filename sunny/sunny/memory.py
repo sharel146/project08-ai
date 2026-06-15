@@ -22,6 +22,14 @@ class Memory:
     created_at: int
 
 
+@dataclass
+class Reminder:
+    id: int
+    text: str
+    due_at: int  # unix seconds
+    fired: bool
+
+
 class Store:
     def __init__(self, db_path: Path | str):
         self.db_path = str(db_path)
@@ -43,6 +51,13 @@ class Store:
                 kind TEXT NOT NULL,
                 detail TEXT NOT NULL,
                 created_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                due_at INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                fired INTEGER NOT NULL DEFAULT 0
             );
             """
         )
@@ -75,6 +90,44 @@ class Store:
             (limit,),
         ).fetchall()
         return [self._row_to_memory(r) for r in rows]
+
+    # --- reminders ---
+    def add_reminder(self, text: str, due_at: int) -> Reminder:
+        now = int(time.time())
+        cur = self._conn.execute(
+            "INSERT INTO reminders (text, due_at, created_at, fired) "
+            "VALUES (?, ?, ?, 0)",
+            (text, int(due_at), now),
+        )
+        self._conn.commit()
+        return Reminder(id=cur.lastrowid, text=text, due_at=int(due_at), fired=False)
+
+    def pending_reminders(self) -> list[Reminder]:
+        rows = self._conn.execute(
+            "SELECT * FROM reminders WHERE fired = 0 ORDER BY due_at ASC"
+        ).fetchall()
+        return [self._row_to_reminder(r) for r in rows]
+
+    def due_reminders(self, now: int) -> list[Reminder]:
+        """Reminders that are due (and not yet fired) as of `now`."""
+        rows = self._conn.execute(
+            "SELECT * FROM reminders WHERE fired = 0 AND due_at <= ? "
+            "ORDER BY due_at ASC",
+            (int(now),),
+        ).fetchall()
+        return [self._row_to_reminder(r) for r in rows]
+
+    def mark_fired(self, reminder_id: int) -> None:
+        self._conn.execute(
+            "UPDATE reminders SET fired = 1 WHERE id = ?", (reminder_id,)
+        )
+        self._conn.commit()
+
+    @staticmethod
+    def _row_to_reminder(r: sqlite3.Row) -> Reminder:
+        return Reminder(
+            id=r["id"], text=r["text"], due_at=r["due_at"], fired=bool(r["fired"])
+        )
 
     # --- events ---
     def log_event(self, kind: str, detail: str) -> None:
