@@ -17,6 +17,26 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _load_dotenv(path: Path) -> None:
+    """Load KEY=VALUE lines from a .env file into os.environ.
+
+    Real environment variables always win (we never overwrite them). This means
+    `python -m sunny.main ...` works on Windows without a shell wrapper — you
+    don't need run.sh to source the file.
+    """
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 @dataclass(frozen=True)
 class Config:
     # --- Brain ---
@@ -51,7 +71,11 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
+        # Auto-load .env from the working directory, then from the repo root,
+        # so Sunny is configured the same way on every platform.
+        _load_dotenv(Path.cwd() / ".env")
         root = Path(os.environ.get("SUNNY_REPO_ROOT", str(_repo_root())))
+        _load_dotenv(root / ".env")
         return cls(
             anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
             model=os.environ.get("SUNNY_MODEL", "claude-opus-4-8"),
