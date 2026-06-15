@@ -1,4 +1,20 @@
-from sunny.notifier import build_publish_request
+from sunny.notifier import Notifier, build_publish_request
+
+
+def test_parse_line_message():
+    line = '{"event":"message","message":"hi sunny","time":123,"id":"abc"}'
+    msg = Notifier._parse_line(line, since=0)
+    assert msg is not None
+    assert msg.text == "hi sunny"
+    assert msg.time == 123
+    assert msg.id == "abc"
+
+
+def test_parse_line_skips_keepalive_and_junk():
+    assert Notifier._parse_line('{"event":"keepalive"}', since=0) is None
+    assert Notifier._parse_line('{"event":"open"}', since=0) is None
+    assert Notifier._parse_line("not json", since=0) is None
+    assert Notifier._parse_line("", since=0) is None
 
 
 def test_build_publish_request_basics():

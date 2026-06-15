@@ -62,26 +62,31 @@ def cmd_serve(config: Config) -> int:
     since = int(time.time())
     while True:
         try:
-            # Fire any reminders that have come due.
-            for rem in brain.store.due_reminders(int(time.time())):
-                brain.notifier.push(rem.text, title="Reminder", tags=["alarm_clock"])
-                brain.store.mark_fired(rem.id)
+            # One long-lived streaming connection (not rapid polling, which
+            # ntfy.sh rate-limits with HTTP 429). Each event — a message or a
+            # keepalive tick — is also our cue to fire any due reminders.
+            for event in brain.notifier.stream_inbound(since=since):
+                for rem in brain.store.due_reminders(int(time.time())):
+                    brain.notifier.push(rem.text, title="Reminder", tags=["alarm_clock"])
+                    brain.store.mark_fired(rem.id)
 
-            for msg in brain.notifier.poll_inbound(since=since):
-                since = max(since, msg.time + 1)
-                text = msg.text.strip()
+                if event is None:
+                    continue  # keepalive tick, nothing to reply to
+
+                since = max(since, event.time + 1)
+                text = event.text.strip()
                 # Approve/reject replies are consumed by the approval gate, not here.
                 if text.lower().startswith(("approve ", "reject ")):
                     continue
                 reply = brain.handle(text)
                 brain.notifier.push(reply, title="Sunny")
-            time.sleep(config.poll_interval_seconds)
+            time.sleep(1)  # connection closed normally; reconnect promptly
         except KeyboardInterrupt:
             print("\nStopped.")
             return 0
-        except Exception as exc:  # keep the daemon alive through transient errors
-            print(f"[serve] error: {exc}")
-            time.sleep(max(config.poll_interval_seconds, 5))
+        except Exception as exc:  # transient drop / rate limit — back off, reconnect
+            print(f"[serve] connection issue ({exc}); reconnecting in 20s…")
+            time.sleep(20)
 
 
 def cmd_serve_http(config: Config) -> int:

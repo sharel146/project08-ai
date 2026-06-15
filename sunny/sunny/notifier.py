@@ -11,8 +11,9 @@ topic names since anyone who knows a topic can read and write it.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Iterator
 
 import requests
 
@@ -81,8 +82,10 @@ class Notifier:
     def poll_inbound(self, since: int) -> list[IncomingMessage]:
         """Fetch messages sent to the inbound topic at or after `since` (unix s).
 
-        Uses ntfy's poll mode (?poll=1) so this returns immediately instead of
-        holding a long-lived stream — simpler and reconnection-free.
+        Uses ntfy's poll mode (?poll=1). This makes a one-shot request, so it's
+        only used for short, infrequent waits (e.g. the approval gate). For the
+        always-on serve loop, use stream_inbound() instead — repeated polling
+        gets rate-limited (HTTP 429) by ntfy.sh.
         """
         if self.dry_run:
             return []
@@ -93,20 +96,58 @@ class Notifier:
         resp.raise_for_status()
         out: list[IncomingMessage] = []
         for line in resp.text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = requests.compat.json.loads(line)  # type: ignore[attr-defined]
-            except Exception:
-                continue
-            if obj.get("event") != "message":
-                continue  # skip keepalive/open events
-            out.append(
-                IncomingMessage(
-                    text=obj.get("message", ""),
-                    time=int(obj.get("time", since)),
-                    id=str(obj.get("id", "")),
-                )
-            )
+            msg = self._parse_line(line, since)
+            if msg is not None:
+                out.append(msg)
         return out
+
+    def stream_inbound(self, since: int) -> Iterator["IncomingMessage | None"]:
+        """Hold ONE long-lived connection to the inbound topic and yield messages
+        as they arrive. Yields None on ntfy keepalive ticks so the caller can do
+        periodic work (e.g. checking reminders). Replays anything since `since`
+        on connect, then streams live. Raises when the connection drops — the
+        caller should reconnect.
+
+        This is the correct, rate-limit-friendly way to receive: one open
+        request instead of a poll every few seconds.
+        """
+        if self.dry_run:
+            return
+        url = f"{self.server}/{self.inbound_topic}/json"
+        with self._session.get(
+            url, params={"since": str(since)}, stream=True, timeout=(10, 90)
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                event = obj.get("event")
+                if event == "message":
+                    yield IncomingMessage(
+                        text=obj.get("message", ""),
+                        time=int(obj.get("time", since)),
+                        id=str(obj.get("id", "")),
+                    )
+                elif event in ("keepalive", "open"):
+                    yield None  # tick for periodic work
+
+    @staticmethod
+    def _parse_line(line: str, since: int) -> "IncomingMessage | None":
+        line = line.strip()
+        if not line:
+            return None
+        try:
+            obj = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if obj.get("event") != "message":
+            return None  # skip keepalive/open events
+        return IncomingMessage(
+            text=obj.get("message", ""),
+            time=int(obj.get("time", since)),
+            id=str(obj.get("id", "")),
+        )
