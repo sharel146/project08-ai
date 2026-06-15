@@ -4,6 +4,7 @@ Usage:
   python -m sunny.main chat       # talk to Sunny in your terminal (good for dev)
   python -m sunny.main serve      # run 24/7: listen on the ntfy inbox, reply to phone
   python -m sunny.main serve-http # run the HTTP API so the watch app can reach her
+  python -m sunny.main briefing   # compose and push a morning briefing now (test)
   python -m sunny.main ping       # send a test push to your phone and exit
 """
 
@@ -11,13 +12,28 @@ from __future__ import annotations
 
 import sys
 import time
+from datetime import datetime
 
 from .brain import Brain
 from .config import Config
 from .memory import Store
 from .notifier import Notifier
-from .tools.devices import DeviceRegistry
+from .tools.devices import build_devices
 from .tools.self_improve import SelfImprover
+
+
+def _briefing_due(config: Config, last_date) -> bool:
+    """True if a daily briefing should go out now and hasn't already today."""
+    if not config.briefing_time:
+        return False
+    try:
+        hh, mm = (int(x) for x in config.briefing_time.split(":"))
+    except ValueError:
+        return False
+    now = datetime.now()
+    if last_date == now.date():
+        return False
+    return (now.hour, now.minute) >= (hh, mm)
 
 
 def _build(config: Config) -> Brain:
@@ -25,7 +41,7 @@ def _build(config: Config) -> Brain:
     notifier = Notifier(
         config.ntfy_server, config.ntfy_outbound_topic, config.ntfy_inbound_topic
     )
-    devices = DeviceRegistry.with_demo_devices()
+    devices = build_devices(config)
     improver = SelfImprover(config.repo_root, config.test_command)
     return Brain(config, store, notifier, devices, improver)
 
@@ -60,15 +76,28 @@ def cmd_serve(config: Config) -> int:
         f"replies go to '{config.ntfy_outbound_topic}'."
     )
     since = int(time.time())
+    # Don't fire a late "morning" briefing the instant we start after the time.
+    last_briefing = datetime.now().date() if _briefing_due(config, None) else None
     while True:
         try:
             # One long-lived streaming connection (not rapid polling, which
             # ntfy.sh rate-limits with HTTP 429). Each event — a message or a
-            # keepalive tick — is also our cue to fire any due reminders.
+            # keepalive tick — is also our cue for time-based work.
             for event in brain.notifier.stream_inbound(since=since):
                 for rem in brain.store.due_reminders(int(time.time())):
                     brain.notifier.push(rem.text, title="Reminder", tags=["alarm_clock"])
                     brain.store.mark_fired(rem.id)
+
+                if _briefing_due(config, last_briefing):
+                    try:
+                        brain.notifier.push(
+                            brain.compose_briefing(),
+                            title="Good morning ☀️",
+                            tags=["sunny"],
+                        )
+                    except Exception as exc:
+                        print(f"[briefing] error: {exc}")
+                    last_briefing = datetime.now().date()
 
                 if event is None:
                     continue  # keepalive tick, nothing to reply to
@@ -100,6 +129,17 @@ def cmd_serve_http(config: Config) -> int:
     return 0
 
 
+def cmd_briefing(config: Config) -> int:
+    if not config.has_brain:
+        print("ANTHROPIC_API_KEY is not set — cannot compose a briefing.")
+        return 1
+    brain = _build(config)
+    text = brain.compose_briefing()
+    brain.notifier.push(text, title="Good morning ☀️", tags=["sunny"])
+    print(text)
+    return 0
+
+
 def cmd_ping(config: Config) -> int:
     notifier = Notifier(
         config.ntfy_server, config.ntfy_outbound_topic, config.ntfy_inbound_topic
@@ -119,6 +159,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_serve(config)
     if command == "serve-http":
         return cmd_serve_http(config)
+    if command == "briefing":
+        return cmd_briefing(config)
     if command == "ping":
         return cmd_ping(config)
     print(__doc__)

@@ -51,3 +51,12 @@ class DeviceRegistry:
             raise KeyError(f"Unknown device '{device_id}'. Known devices: {known}")
         d.state = state
         return {"id": d.id, "name": d.name, "kind": d.kind, "state": d.state}
+
+
+def build_devices(config):
+    """Use real Home Assistant devices when configured, else the demo mock."""
+    if config.has_home_assistant:
+        from .home_assistant import HomeAssistantDevices
+
+        return HomeAssistantDevices(config.ha_url, config.ha_token)
+    return DeviceRegistry.with_demo_devices()

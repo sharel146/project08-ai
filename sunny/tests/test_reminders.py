@@ -25,3 +25,12 @@ def test_due_reminders_respects_time_and_fired(tmp_path):
     store.mark_fired(past.id)
     assert store.due_reminders(int(time.time())) == []
     assert [r.text for r in store.pending_reminders()] == ["future one"]
+
+
+def test_cancel_reminder(tmp_path):
+    store = Store(tmp_path / "t.db")
+    r = store.add_reminder("cancel me", due_at=int(time.time()) + 3600)
+    assert store.cancel_reminder(r.id) is True
+    assert store.pending_reminders() == []
+    # Cancelling again (or an unknown id) reports nothing removed.
+    assert store.cancel_reminder(r.id) is False

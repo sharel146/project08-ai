@@ -65,6 +65,13 @@ class Config:
     http_port: int
     http_token: str
 
+    # --- Home Assistant (optional; real device control when set) ---
+    ha_url: str
+    ha_token: str
+
+    # --- Daily briefing (optional; "HH:MM" local, empty = off) ---
+    briefing_time: str
+
     @property
     def has_brain(self) -> bool:
         return bool(self.anthropic_api_key)
@@ -95,4 +102,11 @@ class Config:
             http_host=os.environ.get("SUNNY_HTTP_HOST", "0.0.0.0"),
             http_port=int(os.environ.get("SUNNY_HTTP_PORT", "8765")),
             http_token=os.environ.get("SUNNY_HTTP_TOKEN", ""),
+            ha_url=os.environ.get("HA_URL", "").rstrip("/"),
+            ha_token=os.environ.get("HA_TOKEN", ""),
+            briefing_time=os.environ.get("SUNNY_BRIEFING_TIME", ""),
         )
+
+    @property
+    def has_home_assistant(self) -> bool:
+        return bool(self.ha_url and self.ha_token)

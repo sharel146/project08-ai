@@ -74,8 +74,17 @@ def tool_definitions() -> list[dict]:
         },
         {
             "name": "list_reminders",
-            "description": "List the owner's upcoming (not-yet-fired) reminders.",
+            "description": "List the owner's upcoming reminders, each with its id.",
             "input_schema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "cancel_reminder",
+            "description": "Cancel an upcoming reminder by its id (from list_reminders).",
+            "input_schema": {
+                "type": "object",
+                "properties": {"id": {"type": "integer"}},
+                "required": ["id"],
+            },
         },
         {
             "name": "remember",
@@ -210,10 +219,25 @@ class Brain:
 
     def handle(self, user_text: str) -> str:
         """Process one user message, running tools until Sunny is done, and
-        return her final text reply."""
+        return her final text reply. Updates the ongoing conversation."""
         self.messages.append({"role": "user", "content": user_text})
         self.store.log_event("user_message", user_text)
+        return self._run(self.messages)
 
+    def oneshot(self, prompt: str) -> str:
+        """Run a self-contained request that does NOT touch the conversation
+        history — used for things like the daily briefing."""
+        return self._run([{"role": "user", "content": prompt}])
+
+    def compose_briefing(self) -> str:
+        return self.oneshot(
+            "Give me a short, friendly morning briefing. Greet me, state today's "
+            "date, list any reminders I have today (use list_reminders), and add "
+            "one brief helpful suggestion. Keep it under 70 words."
+        )
+
+    def _run(self, messages: list[dict]) -> str:
+        """Run the agentic tool-use loop over `messages` and return the reply."""
         for _ in range(20):  # safety cap on tool-use round trips
             response = self.client.messages.create(
                 model=self.config.model,
@@ -222,15 +246,15 @@ class Brain:
                 output_config={"effort": self.config.effort},
                 system=self._system(),
                 tools=tool_definitions(),
-                messages=self.messages,
+                messages=messages,
             )
 
             if response.stop_reason == "refusal":
                 reply = "I can't help with that one."
-                self.messages.append({"role": "assistant", "content": reply})
+                messages.append({"role": "assistant", "content": reply})
                 return reply
 
-            self.messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "assistant", "content": response.content})
 
             # Server-side tools (web search/fetch) can pause the turn; re-send to
             # let Anthropic resume where it left off.
@@ -254,7 +278,7 @@ class Brain:
                         "is_error": is_error,
                     }
                 )
-            self.messages.append({"role": "user", "content": results})
+            messages.append({"role": "user", "content": results})
 
         return "I got a bit tangled up working on that — can you try again?"
 
@@ -277,8 +301,11 @@ class Brain:
                 if not pending:
                     return "No upcoming reminders.", False
                 return "\n".join(
-                    f"- {r.text} @ {self._fmt_time(r.due_at)}" for r in pending
+                    f"- #{r.id} {r.text} @ {self._fmt_time(r.due_at)}" for r in pending
                 ), False
+            if name == "cancel_reminder":
+                ok = self.store.cancel_reminder(int(args["id"]))
+                return ("Reminder cancelled." if ok else "No such pending reminder."), False
             if name == "list_devices":
                 return json.dumps(self.devices.list_devices()), False
             if name == "set_device":

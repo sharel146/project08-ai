@@ -123,6 +123,14 @@ class Store:
         )
         self._conn.commit()
 
+    def cancel_reminder(self, reminder_id: int) -> bool:
+        """Delete a not-yet-fired reminder. Returns True if one was removed."""
+        cur = self._conn.execute(
+            "DELETE FROM reminders WHERE id = ? AND fired = 0", (reminder_id,)
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
     @staticmethod
     def _row_to_reminder(r: sqlite3.Row) -> Reminder:
         return Reminder(
