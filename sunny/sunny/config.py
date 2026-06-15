@@ -40,6 +40,11 @@ class Config:
     # --- Loop ---
     poll_interval_seconds: float
 
+    # --- HTTP API (so the watch / other clients can talk to Sunny) ---
+    http_host: str
+    http_port: int
+    http_token: str
+
     @property
     def has_brain(self) -> bool:
         return bool(self.anthropic_api_key)
@@ -63,4 +68,7 @@ class Config:
                 os.environ.get("SUNNY_APPROVAL_TIMEOUT", "300")
             ),
             poll_interval_seconds=float(os.environ.get("SUNNY_POLL_INTERVAL", "3")),
+            http_host=os.environ.get("SUNNY_HTTP_HOST", "0.0.0.0"),
+            http_port=int(os.environ.get("SUNNY_HTTP_PORT", "8765")),
+            http_token=os.environ.get("SUNNY_HTTP_TOKEN", ""),
         )

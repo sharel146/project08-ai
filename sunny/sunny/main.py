@@ -1,9 +1,10 @@
 """Entry point for Sunny.
 
 Usage:
-  python -m sunny.main chat      # talk to Sunny in your terminal (good for dev)
-  python -m sunny.main serve     # run 24/7: listen on the ntfy inbox, reply to phone
-  python -m sunny.main ping      # send a test push to your phone and exit
+  python -m sunny.main chat       # talk to Sunny in your terminal (good for dev)
+  python -m sunny.main serve      # run 24/7: listen on the ntfy inbox, reply to phone
+  python -m sunny.main serve-http # run the HTTP API so the watch app can reach her
+  python -m sunny.main ping       # send a test push to your phone and exit
 """
 
 from __future__ import annotations
@@ -78,6 +79,17 @@ def cmd_serve(config: Config) -> int:
             time.sleep(max(config.poll_interval_seconds, 5))
 
 
+def cmd_serve_http(config: Config) -> int:
+    if not config.has_brain:
+        print("ANTHROPIC_API_KEY is not set — cannot serve.")
+        return 1
+    from .server import run_http_server
+
+    brain = _build(config)
+    run_http_server(brain, config)
+    return 0
+
+
 def cmd_ping(config: Config) -> int:
     notifier = Notifier(
         config.ntfy_server, config.ntfy_outbound_topic, config.ntfy_inbound_topic
@@ -95,6 +107,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_chat(config)
     if command == "serve":
         return cmd_serve(config)
+    if command == "serve-http":
+        return cmd_serve_http(config)
     if command == "ping":
         return cmd_ping(config)
     print(__doc__)
