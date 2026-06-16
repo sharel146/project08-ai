@@ -53,6 +53,17 @@ Test the phone link:
 For always-on, install the systemd unit (`sunny.service`) — see the comments
 inside it for Linux/macOS/Windows.
 
+### Always-on on Windows
+
+Use the included `start-sunny.cmd` — it runs `serve` and auto-restarts her if she
+ever crashes, logging to `sunny.log`:
+
+1. Double-click `start-sunny.cmd` to start her now.
+2. To launch automatically at login: press **Win+R**, type `shell:startup`, Enter,
+   and drop a **shortcut** to `start-sunny.cmd` into that folder.
+
+To stop her, close the launcher window. Check `sunny.log` if anything looks off.
+
 ## Try the self-improvement loop
 
 In `chat`, ask her something like:
