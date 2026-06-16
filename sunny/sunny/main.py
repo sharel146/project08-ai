@@ -3,7 +3,8 @@
 Usage:
   python -m sunny.main chat       # talk to Sunny in your terminal (good for dev)
   python -m sunny.main serve      # run 24/7: listen on the ntfy inbox, reply to phone
-  python -m sunny.main serve-http # run the HTTP API so the watch app can reach her
+  python -m sunny.main serve-all  # run the web chat UI AND the phone bridge together
+  python -m sunny.main serve-http # run just the web chat UI / HTTP API
   python -m sunny.main briefing   # compose and push a morning briefing now (test)
   python -m sunny.main ping       # send a test push to your phone and exit
 """
@@ -68,6 +69,27 @@ def cmd_serve(config: Config) -> int:
         print("ANTHROPIC_API_KEY is not set — cannot serve.")
         return 1
     brain = _build(config)
+    return _phone_loop(brain, config)
+
+
+def cmd_serve_all(config: Config) -> int:
+    """Run the web chat interface AND the phone bridge together (one process,
+    shared brain)."""
+    if not config.has_brain:
+        print("ANTHROPIC_API_KEY is not set — cannot serve.")
+        return 1
+    import threading
+
+    from .server import run_http_server
+
+    brain = _build(config)
+    threading.Thread(
+        target=run_http_server, args=(brain, config), daemon=True
+    ).start()
+    return _phone_loop(brain, config)
+
+
+def _phone_loop(brain: Brain, config: Config) -> int:
     brain.notifier.push(
         "Sunny is online and listening.", title="Sunny", tags=["sunrise"]
     )
@@ -157,6 +179,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_chat(config)
     if command == "serve":
         return cmd_serve(config)
+    if command == "serve-all":
+        return cmd_serve_all(config)
     if command == "serve-http":
         return cmd_serve_http(config)
     if command == "briefing":

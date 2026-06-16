@@ -1,4 +1,12 @@
-from sunny.server import process_chat
+from sunny.server import INDEX_HTML, process_chat
+
+
+def test_index_html_has_token_placeholder_and_chat_call():
+    # The page must inject the token and post to /chat — guards against the
+    # web UI silently losing its auth or endpoint.
+    assert "__SUNNY_TOKEN__" in INDEX_HTML
+    assert "/chat" in INDEX_HTML
+    assert "X-Sunny-Token" in INDEX_HTML
 
 
 class FakeBrain:

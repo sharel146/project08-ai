@@ -9,6 +9,7 @@ approval before anything ships.
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime
 
 import anthropic
@@ -194,6 +195,8 @@ class Brain:
         self.client = client or anthropic.Anthropic(api_key=config.anthropic_api_key)
         # Conversation history persists for the life of the process.
         self.messages: list[dict] = []
+        # Serialize handle() across threads (web server + phone loop share one brain).
+        self._lock = threading.Lock()
 
     def _system(self) -> str:
         now = datetime.now().astimezone()
@@ -220,9 +223,10 @@ class Brain:
     def handle(self, user_text: str) -> str:
         """Process one user message, running tools until Sunny is done, and
         return her final text reply. Updates the ongoing conversation."""
-        self.messages.append({"role": "user", "content": user_text})
-        self.store.log_event("user_message", user_text)
-        return self._run(self.messages)
+        with self._lock:
+            self.messages.append({"role": "user", "content": user_text})
+            self.store.log_event("user_message", user_text)
+            return self._run(self.messages)
 
     def oneshot(self, prompt: str) -> str:
         """Run a self-contained request that does NOT touch the conversation

@@ -13,7 +13,8 @@ cd /d "%~dp0"
 title Sunny
 :loop
 echo [%date% %time%] starting Sunny... >> sunny.log
-".venv\Scripts\python.exe" -m sunny.main serve >> sunny.log 2>&1
+echo Sunny is running. Web chat: http://localhost:8765/
+".venv\Scripts\python.exe" -m sunny.main serve-all >> sunny.log 2>&1
 echo [%date% %time%] Sunny exited (code %errorlevel%); restarting in 10s... >> sunny.log
 timeout /t 10 /nobreak >nul
 goto loop

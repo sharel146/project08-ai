@@ -48,7 +48,18 @@ Test the phone link:
 ```bash
 ./run.sh chat      # talk in your terminal (best for first contact)
 ./run.sh serve     # 24/7 mode: she listens on the inbox and replies to your phone
+./run.sh serve-all # web chat UI + phone bridge together (recommended)
 ```
+
+### Web chat interface
+
+`serve-all` (or `serve-http`) starts a browser chat UI served by Sunny herself.
+Open **http://localhost:8765/** on the PC, or `http://<PC-IP>:8765/` from your
+phone on the same network (use a Tailscale IP to reach it from anywhere). Set
+`SUNNY_HTTP_TOKEN` in `.env`; the page authenticates with it automatically.
+
+Keep this on your LAN or a private tunnel — don't expose port 8765 to the
+public internet.
 
 For always-on, install the systemd unit (`sunny.service`) — see the comments
 inside it for Linux/macOS/Windows.
