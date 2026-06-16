@@ -240,20 +240,22 @@ function drawConnector(n,t){
   const ctlx=mx-dy*bow,ctly=my+dx*bow;
   ctx.save(); ctx.lineCap="round";
   const path=()=>{ ctx.beginPath(); ctx.moveTo(px,py); ctx.quadraticCurveTo(ctlx,ctly,cx,cy); };
-  if(active){
-    ctx.strokeStyle=hexA("#46e0ff",0.18); ctx.lineWidth=2.5; path(); ctx.stroke();
-    ctx.shadowColor="#46e0ff"; ctx.shadowBlur=14;
-    for(let k=0;k<9;k++){ const f=((t*0.32+k/9)%1),it=1-f;
-      const x=qpt(px,ctlx,cx,f), y=qpt(py,ctly,cy,f);
-      ctx.fillStyle="rgba(150,240,255,0.95)"; ctx.beginPath(); ctx.arc(x,y,2.6,0,TAU); ctx.fill(); }
+  // State first, so a "down" or "not linked" link can NEVER look active.
+  if(n.state==="absent"){
+    // not linked yet — static yellow dashes, no motion (nothing is happening)
+    ctx.strokeStyle=hexA("#ffce4d",0.6); ctx.lineWidth=1.5; ctx.setLineDash([4,9]); ctx.shadowColor="#ffce4d"; ctx.shadowBlur=4; path(); ctx.stroke();
   } else if(n.state==="offline"){
     const a=0.35+0.4*Math.sin(t*4); ctx.strokeStyle=hexA("#ff4d6a",a); ctx.lineWidth=2; ctx.shadowColor="#ff3355"; ctx.shadowBlur=9; path(); ctx.stroke();
-  } else if(n.state==="absent"){
-    ctx.strokeStyle=hexA("#ffce4d",0.7); ctx.lineWidth=1.6; ctx.setLineDash([4,8]); ctx.lineDashOffset=-t*22; ctx.shadowColor="#ffce4d"; ctx.shadowBlur=5; path(); ctx.stroke();
+  } else if(active){
+    // GENUINELY in use right now — blue data flowing toward the core
+    ctx.strokeStyle=hexA("#46e0ff",0.2); ctx.lineWidth=2.5; path(); ctx.stroke();
+    ctx.shadowColor="#46e0ff"; ctx.shadowBlur=14;
+    for(let k=0;k<9;k++){ const f=((t*0.32+k/9)%1);
+      const x=qpt(px,ctlx,cx,f), y=qpt(py,ctly,cy,f);
+      ctx.fillStyle="rgba(150,240,255,0.95)"; ctx.beginPath(); ctx.arc(x,y,2.6,0,TAU); ctx.fill(); }
   } else {
-    ctx.strokeStyle="rgba(255,255,255,0.38)"; ctx.lineWidth=1.4; ctx.shadowColor="#ffffff"; ctx.shadowBlur=6; path(); ctx.stroke();
-    const f=(t*0.16+n.angle/TAU)%1; const x=qpt(px,ctlx,cx,f), y=qpt(py,ctly,cy,f);
-    ctx.fillStyle="rgba(255,255,255,0.85)"; ctx.beginPath(); ctx.arc(x,y,1.7,0,TAU); ctx.fill();
+    // online but idle — a calm, steady white glow. No moving parts, no faking.
+    ctx.strokeStyle="rgba(255,255,255,0.4)"; ctx.lineWidth=1.5; ctx.shadowColor="#ffffff"; ctx.shadowBlur=6; path(); ctx.stroke();
   }
   ctx.restore();
 }

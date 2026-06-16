@@ -108,6 +108,8 @@ def _phone_loop(brain: Brain, config: Config) -> int:
             for event in brain.notifier.stream_inbound(since=since):
                 brain.phone_online = True  # the string to Earth is live
                 for rem in brain.store.due_reminders(int(time.time())):
+                    brain.mark_active("reminders")
+                    brain.mark_active("phone")
                     brain.notifier.push(rem.text, title="Reminder", tags=["alarm_clock"])
                     brain.store.mark_fired(rem.id)
 

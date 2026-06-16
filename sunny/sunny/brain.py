@@ -274,6 +274,14 @@ class Brain:
                 messages.append({"role": "assistant", "content": reply})
                 return reply
 
+            # Light the "Web search" planet only when a real server-side search ran.
+            if any(
+                getattr(b, "type", "") in
+                ("server_tool_use", "web_search_tool_result", "web_fetch_tool_result")
+                for b in response.content
+            ):
+                self.mark_active("search")
+
             messages.append({"role": "assistant", "content": response.content})
 
             # Server-side tools (web search/fetch) can pause the turn; re-send to
@@ -306,6 +314,16 @@ class Brain:
         """Execute a tool. Returns (result_text, is_error)."""
         try:
             self.store.log_event("tool_call", f"{name} {json.dumps(args)[:300]}")
+            # Light the matching planet for real subsystem use.
+            channel = {
+                "remember": "memory", "recall": "memory",
+                "set_reminder": "reminders", "list_reminders": "reminders",
+                "cancel_reminder": "reminders",
+                "notify_user": "phone",
+                "set_device": "home", "list_devices": "home",
+            }.get(name)
+            if channel:
+                self.mark_active(channel)
             if name == "remember":
                 m = self.store.remember(args["text"], args.get("tag", "note"))
                 return f"Remembered (#{m.id}).", False
