@@ -3,17 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="theme-color" content="#03040a">
+<meta name="theme-color" content="#020617">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Sunny">
 <title>Sunny</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
-  :root{ --cy:#46e0ff; --cy2:#5aa8ff; }
+  :root{
+    /* semantic tokens (slate / deep-space, WCAG-checked pairings) */
+    --bg:#020617; --fg:#f8fafc; --muted-fg:#94a3b8; --border:#334155;
+    --cy:#46e0ff; --cy2:#5aa8ff;
+    /* link-status colours — Sunny's honest connector states */
+    --st-online:#ffffff; --st-inuse:#46e0ff; --st-down:#ff4d6a; --st-idle:#ffce4d;
+  }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html,body{ margin:0; height:100%; overflow:hidden; background:#03040a;
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; color:#dfe9ff; }
-  .mono{ font-family:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Consolas,Menlo,monospace; }
+  html,body{ margin:0; height:100%; overflow:hidden; background:var(--bg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; color:var(--fg); }
+  .mono{ font-family:"Share Tech Mono",ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Consolas,Menlo,monospace; }
+  /* visible keyboard focus on every interactive control (a11y: focus-states) */
+  button:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
+    outline:2px solid var(--cy); outline-offset:2px; }
+  button:focus:not(:focus-visible){ outline:none; }
   #space{ display:block; width:100vw; height:100dvh; touch-action:none; }
 
   /* HUD */
@@ -28,7 +41,8 @@
   #title .t{ font-size:15px; letter-spacing:7px; font-weight:700; color:#eaf3ff; text-shadow:0 0 18px rgba(70,224,255,.6); }
   #title .s{ font-size:9.5px; letter-spacing:4px; color:var(--cy); opacity:.8; margin-top:3px; }
   #readout{ position:fixed; bottom:calc(18px + env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%); z-index:5;
-    font-size:10.5px; letter-spacing:2px; color:#9fc8e0; opacity:.85; text-align:center; }
+    font-size:10.5px; letter-spacing:2px; color:#9fc8e0; opacity:.85; text-align:center;
+    font-variant-numeric:tabular-nums; }
 
   #legend{ position:fixed; top:calc(54px + env(safe-area-inset-top)); left:16px; z-index:5;
     font-size:10px; letter-spacing:1.5px; line-height:1.9; color:#a9c4e0; }
@@ -49,7 +63,9 @@
   #card h3{ margin:0 0 5px; font-size:13px; letter-spacing:2px; }
   #card .st{ font-size:11px; letter-spacing:1.5px; margin-bottom:8px; font-weight:600; }
   #card p{ margin:0; font-size:12.5px; color:#9fb2d6; line-height:1.5; }
-  #card .x{ position:absolute; top:9px; right:12px; cursor:pointer; color:#7d8aa8; font-size:15px; pointer-events:auto; }
+  #card .x{ position:absolute; top:6px; right:8px; cursor:pointer; color:#7d8aa8; pointer-events:auto;
+    background:none; border:none; padding:6px; display:grid; place-items:center; border-radius:4px; }
+  #card .x:hover{ color:#cfe0f5; }
 
   #sheet{ position:fixed; inset:0; z-index:10; display:none; }
   #sheet .scrim{ position:absolute; inset:0; background:rgba(2,4,10,.62); backdrop-filter:blur(3px); }
@@ -63,7 +79,9 @@
     background:radial-gradient(circle at 38% 35%,#fff3c4,#ffd24d 45%,#ff9e2c 78%); box-shadow:0 0 16px #ffb43a; }
   #panel .bar b{ font-size:14px; letter-spacing:3px; } #panel .bar .grow{ flex:1; }
   #panel .bar .ic{ width:36px; height:36px; border-radius:4px; border:1px solid rgba(70,224,255,.2); cursor:pointer; color:#bcd0ea;
-    background:rgba(70,224,255,.06); display:grid; place-items:center; font-size:15px; }
+    background:rgba(70,224,255,.06); display:grid; place-items:center; font-size:15px;
+    transition:background .18s ease, color .18s ease, border-color .18s ease; }
+  #panel .bar .ic:hover{ background:rgba(70,224,255,.14); color:#eaf3ff; border-color:rgba(70,224,255,.4); }
   #log{ flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:12px; }
   .row{ display:flex; gap:8px; align-items:flex-end; max-width:90%; animation:pop .2s ease; }
   .row.me{ align-self:flex-end; flex-direction:row-reverse; }
@@ -72,7 +90,8 @@
   .bubble{ padding:10px 13px; border-radius:13px; line-height:1.45; font-size:15px; word-wrap:break-word; overflow-wrap:anywhere; }
   .me .bubble{ background:linear-gradient(135deg,#1f7fff,#0a5ad6); color:#fff; border-bottom-right-radius:4px; box-shadow:0 0 16px rgba(31,127,255,.3); }
   .her .bubble{ background:rgba(70,224,255,.07); border:1px solid rgba(70,224,255,.16); border-bottom-left-radius:4px; }
-  .bubble a{ color:#7fd4ff } .bubble code{ background:rgba(70,224,255,.14); padding:1px 5px; border-radius:4px; }
+  .bubble a{ color:#7fd4ff } .bubble code{ background:rgba(70,224,255,.14); padding:1px 5px; border-radius:4px;
+    font-family:"Fira Code",ui-monospace,Menlo,Consolas,monospace; font-size:.92em; }
   .typing .bubble{ display:inline-flex; gap:5px }
   .dot{ width:7px; height:7px; border-radius:50%; background:#6f86b5; animation:blink 1.3s infinite }
   .dot:nth-child(2){ animation-delay:.2s } .dot:nth-child(3){ animation-delay:.4s }
@@ -89,6 +108,13 @@
   #input:focus{ border-color:var(--cy) }
   #send{ width:48px; height:48px; border-radius:50%; border:none; flex:none; cursor:pointer; color:#fff; font-size:18px;
     background:rgba(70,224,255,.12); display:grid; place-items:center; }
+  #send svg,#mic svg,.ic svg,.x svg{ display:block; }
+
+  /* a11y: honour the OS "reduce motion" setting — stop all non-essential
+     animation. The canvas scene is calmed separately in JS (see REDUCE). */
+  @media (prefers-reduced-motion: reduce){
+    *{ animation:none !important; transition:none !important; }
+  }
 </style>
 </head>
 <body>
@@ -110,7 +136,7 @@
 <div id="hint" class="mono">TAP THE CORE TO TALK</div>
 
 <div id="card">
-  <span class="x" id="cardX">&#10005;</span>
+  <button class="x" id="cardX" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
   <h3 id="cardTitle" class="mono"></h3>
   <div class="st mono" id="cardState"></div>
   <p id="cardBody"></p>
@@ -123,15 +149,15 @@
       <div class="sun-mini"></div>
       <b class="mono">SUNNY</b>
       <span class="grow"></span>
-      <button class="ic" id="mute" title="Mute voice">&#128266;</button>
-      <button class="ic" id="newchat" title="New chat">&#10227;</button>
-      <button class="ic" id="close" title="Close">&#10005;</button>
+      <button class="ic" id="mute" type="button" aria-label="Mute voice" title="Mute voice"></button>
+      <button class="ic" id="newchat" type="button" aria-label="New chat" title="New chat"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><line x1="12" y1="7" x2="12" y2="13"></line><line x1="9" y1="10" x2="15" y2="10"></line></svg></button>
+      <button class="ic" id="close" type="button" aria-label="Close chat" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
     </div>
     <div id="log"></div>
     <form id="form">
-      <button id="mic" type="button" title="Talk">&#127908;</button>
-      <textarea id="input" rows="1" placeholder="Talk, or type…" autocomplete="off"></textarea>
-      <button id="send" type="submit" title="Send">&#10148;</button>
+      <button id="mic" type="button" aria-label="Talk to Sunny" title="Talk"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg></button>
+      <textarea id="input" rows="1" placeholder="Talk, or type…" autocomplete="off" aria-label="Message Sunny"></textarea>
+      <button id="send" type="submit" aria-label="Send message" title="Send"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"></path><path d="M22 2 15 22l-4-9-9-4z"></path></svg></button>
     </form>
   </div>
 </div>
@@ -139,6 +165,12 @@
 <script>
 const TOKEN = "__SUNNY_TOKEN__";
 const TAU = Math.PI*2;
+// a11y: when the OS asks for reduced motion, the scene goes calm — planets
+// hold position, the radar stops sweeping, the sun stops churning. States
+// (online / in-use / down / not-linked) still read clearly, just without motion.
+const RM = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : {matches:false,addEventListener(){}};
+let REDUCE = RM.matches;
+RM.addEventListener && RM.addEventListener("change", e=>{ REDUCE = e.matches; });
 
 const VIS = {
   search:   { name:"WEB SEARCH",     orbit:0.175, size:15, color:"#a9b6c8", speed:0.080 },
@@ -225,18 +257,20 @@ function drawGrid(t){
   // radial spokes
   for(let a=0;a<TAU;a+=TAU/12){ ctx.strokeStyle=hexA("#46e0ff",0.04); ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(Math.cos(a)*orr,Math.sin(a)*orr); ctx.stroke(); }
-  // radar sweep
-  const sw=t*0.5%TAU; ctx.globalCompositeOperation="lighter";
-  const wg=ctx.createConicGradient ? ctx.createConicGradient(sw,0,0) : null;
-  if(wg){ wg.addColorStop(0,hexA("#46e0ff",0.16)); wg.addColorStop(0.08,"rgba(70,224,255,0)"); wg.addColorStop(1,"rgba(70,224,255,0)");
-    ctx.fillStyle=wg; ctx.beginPath(); ctx.arc(0,0,orr,0,TAU); ctx.fill(); }
-  else { ctx.fillStyle=hexA("#46e0ff",0.10); ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,orr,sw-0.5,sw); ctx.closePath(); ctx.fill(); }
+  // radar sweep (motion — skipped when reduced motion is requested)
+  if(!REDUCE){
+    const sw=t*0.5%TAU; ctx.globalCompositeOperation="lighter";
+    const wg=ctx.createConicGradient ? ctx.createConicGradient(sw,0,0) : null;
+    if(wg){ wg.addColorStop(0,hexA("#46e0ff",0.16)); wg.addColorStop(0.08,"rgba(70,224,255,0)"); wg.addColorStop(1,"rgba(70,224,255,0)");
+      ctx.fillStyle=wg; ctx.beginPath(); ctx.arc(0,0,orr,0,TAU); ctx.fill(); }
+    else { ctx.fillStyle=hexA("#46e0ff",0.10); ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,orr,sw-0.5,sw); ctx.closePath(); ctx.fill(); }
+  }
   ctx.restore();
 }
 
 function drawConnector(n,t){
   const px=n.x,py=n.y,active=nodeActive(n);
-  const mx=(px+cx)/2,my=(py+cy)/2,dx=cx-px,dy=cy-py,bow=0.06*Math.sin(t*0.6+n.angle);
+  const mx=(px+cx)/2,my=(py+cy)/2,dx=cx-px,dy=cy-py,bow=REDUCE?0:0.06*Math.sin(t*0.6+n.angle);
   const ctlx=mx-dy*bow,ctly=my+dx*bow;
   ctx.save(); ctx.lineCap="round";
   const path=()=>{ ctx.beginPath(); ctx.moveTo(px,py); ctx.quadraticCurveTo(ctlx,ctly,cx,cy); };
@@ -245,14 +279,20 @@ function drawConnector(n,t){
     // not linked yet — static yellow dashes, no motion (nothing is happening)
     ctx.strokeStyle=hexA("#ffce4d",0.6); ctx.lineWidth=1.5; ctx.setLineDash([4,9]); ctx.shadowColor="#ffce4d"; ctx.shadowBlur=4; path(); ctx.stroke();
   } else if(n.state==="offline"){
-    const a=0.35+0.4*Math.sin(t*4); ctx.strokeStyle=hexA("#ff4d6a",a); ctx.lineWidth=2; ctx.shadowColor="#ff3355"; ctx.shadowBlur=9; path(); ctx.stroke();
+    // down — red. A slow pulse normally; a steady red when motion is reduced.
+    const a=REDUCE?0.7:0.35+0.4*Math.sin(t*4); ctx.strokeStyle=hexA("#ff4d6a",a); ctx.lineWidth=2; ctx.shadowColor="#ff3355"; ctx.shadowBlur=9; path(); ctx.stroke();
   } else if(active){
-    // GENUINELY in use right now — blue data flowing toward the core
+    // GENUINELY in use right now — blue toward the core.
     ctx.strokeStyle=hexA("#46e0ff",0.2); ctx.lineWidth=2.5; path(); ctx.stroke();
     ctx.shadowColor="#46e0ff"; ctx.shadowBlur=14;
-    for(let k=0;k<9;k++){ const f=((t*0.32+k/9)%1);
-      const x=qpt(px,ctlx,cx,f), y=qpt(py,ctly,cy,f);
-      ctx.fillStyle="rgba(150,240,255,0.95)"; ctx.beginPath(); ctx.arc(x,y,2.6,0,TAU); ctx.fill(); }
+    if(REDUCE){
+      // reduced motion — a solid bright blue link instead of travelling particles
+      ctx.strokeStyle=hexA("#8af0ff",0.95); ctx.lineWidth=2.5; path(); ctx.stroke();
+    } else {
+      for(let k=0;k<9;k++){ const f=((t*0.32+k/9)%1);
+        const x=qpt(px,ctlx,cx,f), y=qpt(py,ctly,cy,f);
+        ctx.fillStyle="rgba(150,240,255,0.95)"; ctx.beginPath(); ctx.arc(x,y,2.6,0,TAU); ctx.fill(); }
+    }
   } else {
     // online but idle — a calm, steady white glow. No moving parts, no faking.
     ctx.strokeStyle="rgba(255,255,255,0.4)"; ctx.lineWidth=1.5; ctx.shadowColor="#ffffff"; ctx.shadowBlur=6; path(); ctx.stroke();
@@ -289,7 +329,7 @@ function drawPlanet(n,t){
   // HUD label
   ctx.save(); ctx.globalAlpha=n.appear;
   if(ctx.letterSpacing!==undefined) ctx.letterSpacing="1.5px";
-  ctx.font="600 10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"; ctx.textAlign="center";
+  ctx.font='11px "Share Tech Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace'; ctx.textAlign="center";
   const lw=ctx.measureText(n.label).width;
   ctx.shadowColor="rgba(0,0,0,.85)"; ctx.shadowBlur=4; ctx.fillStyle="rgba(220,235,255,0.92)";
   ctx.fillText(n.label, n.x, n.y+r+18);
@@ -305,8 +345,8 @@ let wasActive=false;
 
 function drawSun(t){
   const r=sunR(), speaking=Date.now()<speakingUntil, act=anyActive();
-  if(act&&!wasActive) pingShock(); wasActive=act;
-  const glow=1+0.05*Math.sin(t*2.2)+(speaking?0.5:0)+(act?0.18:0);
+  if(!REDUCE && act&&!wasActive) pingShock(); wasActive=act;
+  const glow=REDUCE?1.05:1+0.05*Math.sin(t*2.2)+(speaking?0.5:0)+(act?0.18:0);
   ctx.save(); ctx.globalCompositeOperation="lighter";
   // bloom
   const cg=ctx.createRadialGradient(cx,cy,r*0.2,cx,cy,r*5.2*glow);
@@ -319,7 +359,7 @@ function drawSun(t){
   ctx.restore();
   // accretion rings (tilted, rotating)
   ctx.save(); ctx.translate(cx,cy);
-  for(let i=0;i<2;i++){ ctx.save(); ctx.rotate(t*(0.18-i*0.07)+i*0.6);
+  for(let i=0;i<2;i++){ ctx.save(); ctx.rotate(REDUCE?(i*0.6):(t*(0.18-i*0.07)+i*0.6));
     const rx=r*(2.4+i*0.7), ry=rx*0.32; const lg=ctx.createLinearGradient(-rx,0,rx,0);
     lg.addColorStop(0,"rgba(255,170,70,0)"); lg.addColorStop(0.5,hexA(i?"#ff9e5e":"#ffd27a",0.55)); lg.addColorStop(1,"rgba(255,170,70,0)");
     ctx.strokeStyle=lg; ctx.lineWidth=2.2; ctx.globalCompositeOperation="lighter";
@@ -330,9 +370,9 @@ function drawSun(t){
   const core=ctx.createRadialGradient(cx-r*0.25,cy-r*0.25,r*0.1,cx,cy,r);
   core.addColorStop(0,"#fff8e0"); core.addColorStop(0.45,"#ffce5a"); core.addColorStop(0.85,"#ff8a2c"); core.addColorStop(1,"#ff6a1a");
   ctx.fillStyle=core; ctx.beginPath(); ctx.arc(cx,cy,r,0,TAU); ctx.fill();
-  for(let i=0;i<5;i++){ const a=t*0.4+i*1.3, br=r*0.35, bx=cx+Math.cos(a)*r*0.4, by=cy+Math.sin(a*1.3)*r*0.4;
+  if(!REDUCE){ for(let i=0;i<5;i++){ const a=t*0.4+i*1.3, br=r*0.35, bx=cx+Math.cos(a)*r*0.4, by=cy+Math.sin(a*1.3)*r*0.4;
     const bg=ctx.createRadialGradient(bx,by,0,bx,by,br); bg.addColorStop(0,"rgba(255,245,200,0.5)"); bg.addColorStop(1,"rgba(255,160,60,0)");
-    ctx.fillStyle=bg; ctx.beginPath(); ctx.arc(bx,by,br,0,TAU); ctx.fill(); }
+    ctx.fillStyle=bg; ctx.beginPath(); ctx.arc(bx,by,br,0,TAU); ctx.fill(); } }
   ctx.restore();
   // bright rim
   ctx.save(); ctx.strokeStyle="rgba(255,240,200,0.8)"; ctx.lineWidth=1.5; ctx.shadowColor="#ffd27a"; ctx.shadowBlur=18;
@@ -343,18 +383,18 @@ function drawSun(t){
 let t0=performance.now(), last=t0;
 function frame(now){
   const t=(now-t0)/1000, dt=Math.min(0.05,(now-last)/1000); last=now;
-  ox=lerp(ox,pmx,0.05); oy=lerp(oy,pmy,0.05);
-  ctx.fillStyle="#03040a"; ctx.fillRect(0,0,W,H);
+  ox=lerp(ox,REDUCE?0:pmx,0.05); oy=lerp(oy,REDUCE?0:pmy,0.05);
+  ctx.fillStyle="#020617"; ctx.fillRect(0,0,W,H);
   if(nebula){ ctx.globalAlpha=0.9; ctx.drawImage(nebula,-ox*26,-oy*26,W+ox*52+26,H+oy*52+26); ctx.globalAlpha=1; }
-  for(const s of starsB){ const a=0.3+0.5*Math.abs(Math.sin(t*s.s+s.p)); ctx.fillStyle="rgba(200,225,255,"+a*0.7+")"; ctx.beginPath(); ctx.arc(s.x*W-ox*10,s.y*H-oy*10,s.r,0,TAU); ctx.fill(); }
-  for(const s of starsA){ const a=0.4+0.6*Math.abs(Math.sin(t*s.s+s.p)); ctx.fillStyle="rgba(235,245,255,"+a*0.85+")"; ctx.beginPath(); ctx.arc(s.x*W-ox*20,s.y*H-oy*20,s.r,0,TAU); ctx.fill(); }
-  nextShoot-=dt*1000; if(nextShoot<=0){ nextShoot=5000+Math.random()*7000; shooters.push({x:Math.random()*W*0.7,y:-20,vx:(2+Math.random()*2)*120,vy:(2.5+Math.random()*1.5)*120,life:1}); }
+  for(const s of starsB){ const a=REDUCE?0.5:0.3+0.5*Math.abs(Math.sin(t*s.s+s.p)); ctx.fillStyle="rgba(200,225,255,"+a*0.7+")"; ctx.beginPath(); ctx.arc(s.x*W-ox*10,s.y*H-oy*10,s.r,0,TAU); ctx.fill(); }
+  for(const s of starsA){ const a=REDUCE?0.7:0.4+0.6*Math.abs(Math.sin(t*s.s+s.p)); ctx.fillStyle="rgba(235,245,255,"+a*0.85+")"; ctx.beginPath(); ctx.arc(s.x*W-ox*20,s.y*H-oy*20,s.r,0,TAU); ctx.fill(); }
+  if(!REDUCE){ nextShoot-=dt*1000; if(nextShoot<=0){ nextShoot=5000+Math.random()*7000; shooters.push({x:Math.random()*W*0.7,y:-20,vx:(2+Math.random()*2)*120,vy:(2.5+Math.random()*1.5)*120,life:1}); } }
   shooters=shooters.filter(s=>s.life>0);
   for(const s of shooters){ s.x+=s.vx*dt; s.y+=s.vy*dt; s.life-=dt*0.5; const lx=s.x-s.vx*0.06,ly=s.y-s.vy*0.06;
     const lg=ctx.createLinearGradient(lx,ly,s.x,s.y); lg.addColorStop(0,"rgba(255,255,255,0)"); lg.addColorStop(1,"rgba(200,235,255,"+s.life+")");
     ctx.strokeStyle=lg; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(lx,ly); ctx.lineTo(s.x,s.y); ctx.stroke(); }
   drawGrid(t);
-  for(const n of nodes){ n.angle+=n.speed*dt*0.9; n.appear=Math.min(1,n.appear+dt*1.7);
+  for(const n of nodes){ if(!REDUCE) n.angle+=n.speed*dt*0.9; n.appear=REDUCE?1:Math.min(1,n.appear+dt*1.7);
     n.x=cx+Math.cos(n.angle)*n.orbit*R; n.y=cy+Math.sin(n.angle)*n.orbit*R; }
   for(const n of nodes) drawConnector(n,t);
   for(const n of nodes) drawPlanet(n,t);
@@ -401,9 +441,14 @@ function render(role,text,save){ const row=document.createElement("div"); row.cl
 function typing(){ const r=document.createElement("div"); r.className="row her typing";
   r.innerHTML='<div class="ava"></div><div class="bubble"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>'; log.appendChild(r); log.scrollTop=log.scrollHeight; return r; }
 
+const ICON_VOL='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>';
+const ICON_MUTE='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="22" y1="9" x2="16" y2="15"></line><line x1="16" y1="9" x2="22" y2="15"></line></svg>';
 let muted=localStorage.getItem("sunny_muted")==="1";
-document.getElementById("mute").innerHTML=muted?"&#128263;":"&#128266;";
-document.getElementById("mute").onclick=()=>{ muted=!muted; localStorage.setItem("sunny_muted",muted?"1":"0"); document.getElementById("mute").innerHTML=muted?"&#128263;":"&#128266;"; if(muted) speechSynthesis.cancel(); };
+const muteBtn=document.getElementById("mute");
+function setMute(){ muteBtn.innerHTML=muted?ICON_MUTE:ICON_VOL; muteBtn.setAttribute("aria-label",muted?"Unmute voice":"Mute voice");
+  muteBtn.setAttribute("aria-pressed",muted?"true":"false"); muteBtn.title=muted?"Voice muted":"Mute voice"; }
+setMute();
+muteBtn.onclick=()=>{ muted=!muted; localStorage.setItem("sunny_muted",muted?"1":"0"); setMute(); if(muted) speechSynthesis.cancel(); };
 function speak(text){ if(muted||!window.speechSynthesis) return; speechSynthesis.cancel();
   const u=new SpeechSynthesisUtterance(text.replace(/https?:\/\/\S+/g,"link").slice(0,600)); u.rate=1.0; u.pitch=1.05;
   u.onstart=()=>{speakingUntil=Date.now()+600000;}; u.onend=()=>{speakingUntil=0;}; speechSynthesis.speak(u); }
