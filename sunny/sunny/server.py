@@ -24,7 +24,20 @@ from .brain import Brain
 from .config import Config
 
 # The page lives in a real file (raw HTML/JS — no Python escaping headaches).
-INDEX_HTML = (Path(__file__).parent / "web" / "index.html").read_text(encoding="utf-8")
+WEB_DIR = Path(__file__).parent / "web"
+INDEX_HTML = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+
+# Static assets we serve from web/ (the vendored 3D engine). Mapped by suffix.
+_STATIC_TYPES = {
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".wasm": "application/wasm",
+    ".json": "application/json; charset=utf-8",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".svg": "image/svg+xml",
+}
 
 # Cache Home Assistant reachability so /status doesn't ping it on every poll.
 _ha_cache = {"ts": 0.0, "ok": False}
@@ -110,9 +123,34 @@ def _make_handler(brain: Brain, config: Config):
             self.end_headers()
             self.wfile.write(data)
 
+        def _send_static(self, rel_path: str) -> None:
+            """Serve a file from web/ (used for the vendored 3D engine).
+
+            Path-traversal safe: the resolved path must stay inside web/.
+            """
+            try:
+                target = (WEB_DIR / rel_path.lstrip("/")).resolve()
+                target.relative_to(WEB_DIR.resolve())
+            except (ValueError, OSError):
+                self._send(404, {"error": "not found"})
+                return
+            if not target.is_file():
+                self._send(404, {"error": "not found"})
+                return
+            data = target.read_bytes()
+            ctype = _STATIC_TYPES.get(target.suffix.lower(), "application/octet-stream")
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            self.wfile.write(data)
+
         def do_GET(self):  # noqa: N802
             if self.path in ("/", "/index.html"):
                 self._send_html(INDEX_HTML.replace("__SUNNY_TOKEN__", config.http_token))
+            elif self.path.startswith("/vendor/"):
+                self._send_static(self.path.split("?", 1)[0])
             elif self.path == "/status":
                 if not authed(self.headers):
                     self._send(401, {"error": "unauthorized"})

@@ -1,6 +1,23 @@
 from types import SimpleNamespace
 
-from sunny.server import INDEX_HTML, build_status, process_chat
+from sunny.server import WEB_DIR, INDEX_HTML, _STATIC_TYPES, build_status, process_chat
+
+
+def test_vendored_three_engine_is_present():
+    # The 3D scene loads a locally vendored engine (works offline, no CDN).
+    assert (WEB_DIR / "vendor" / "three" / "build" / "three.module.js").is_file()
+    assert _STATIC_TYPES[".js"].startswith("text/javascript")
+
+
+def test_static_route_blocks_path_traversal():
+    # The static handler only serves files that resolve inside web/.
+    escaped = (WEB_DIR / ".." / "config.py").resolve()
+    try:
+        escaped.relative_to(WEB_DIR.resolve())
+        inside = True
+    except ValueError:
+        inside = False
+    assert inside is False  # traversal escapes web/ -> handler returns 404
 
 
 def test_index_html_has_token_placeholder_and_chat_call():
@@ -10,7 +27,10 @@ def test_index_html_has_token_placeholder_and_chat_call():
     assert "/chat" in INDEX_HTML
     assert "X-Sunny-Token" in INDEX_HTML
     assert "/status" in INDEX_HTML
-    assert 'id="space"' in INDEX_HTML  # the solar-system canvas
+    # the WebGL solar-system scene: vendored Three.js engine + planet labels
+    assert "importmap" in INDEX_HTML
+    assert "/vendor/three/build/three.module.js" in INDEX_HTML
+    assert 'id="labels"' in INDEX_HTML
 
 
 def test_build_status_reflects_connectivity():
