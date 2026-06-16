@@ -233,6 +233,11 @@ class Brain:
         history — used for things like the daily briefing."""
         return self._run([{"role": "user", "content": prompt}])
 
+    def reset(self) -> None:
+        """Start a fresh conversation (clears in-memory history, keeps memory/db)."""
+        with self._lock:
+            self.messages.clear()
+
     def compose_briefing(self) -> str:
         return self.oneshot(
             "Give me a short, friendly morning briefing. Greet me, state today's "
