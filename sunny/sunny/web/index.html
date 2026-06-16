@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#05060c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sunny">
+<title>Sunny</title>
+<style>
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; overflow:hidden; background:#05060c;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; color:#eaf0ff; }
+  #space { display:block; width:100vw; height:100dvh; touch-action:none; }
+
+  /* legend */
+  #legend { position:fixed; top:calc(12px + env(safe-area-inset-top)); left:14px; z-index:5;
+    font-size:12px; line-height:1.7; color:#cdd6f0; background:rgba(10,14,28,.5);
+    border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:9px 12px; backdrop-filter:blur(6px); }
+  #legend b { display:block; font-size:13px; margin-bottom:3px; letter-spacing:.4px; color:#fff; }
+  .key { display:flex; align-items:center; gap:7px; }
+  .swatch { width:18px; height:3px; border-radius:2px; }
+  .sw-white { background:#fff; box-shadow:0 0 6px #fff; }
+  .sw-blue { background:#5aa8ff; box-shadow:0 0 7px #5aa8ff; }
+  .sw-red { background:#ff5252; box-shadow:0 0 6px #ff5252; }
+  .sw-yellow { background:#f2d44d; }
+  #hint { position:fixed; bottom:calc(16px + env(safe-area-inset-bottom)); left:0; right:0; z-index:5;
+    text-align:center; font-size:13px; color:#9fb0d6; pointer-events:none; transition:opacity .4s; }
+
+  /* planet info card */
+  #card { position:fixed; left:50%; bottom:calc(64px + env(safe-area-inset-bottom)); transform:translateX(-50%);
+    z-index:6; min-width:220px; max-width:84vw; background:rgba(14,18,34,.92); border:1px solid rgba(255,255,255,.12);
+    border-radius:16px; padding:14px 16px; box-shadow:0 12px 40px rgba(0,0,0,.5); display:none; }
+  #card h3 { margin:0 0 4px; font-size:17px; }
+  #card .st { font-size:13px; margin-bottom:6px; }
+  #card p { margin:0; font-size:13px; color:#aab6d6; line-height:1.45; }
+  #card .x { position:absolute; top:8px; right:10px; cursor:pointer; color:#8893b5; font-size:16px; }
+
+  /* chat / voice overlay */
+  #sheet { position:fixed; inset:0; z-index:10; display:none; }
+  #sheet .scrim { position:absolute; inset:0; background:rgba(2,4,10,.55); backdrop-filter:blur(2px); }
+  #panel { position:absolute; left:0; right:0; bottom:0; max-height:82dvh; display:flex; flex-direction:column;
+    background:linear-gradient(180deg,#0c1020,#070a14); border-top-left-radius:22px; border-top-right-radius:22px;
+    border-top:1px solid rgba(255,255,255,.1); box-shadow:0 -10px 50px rgba(0,0,0,.6);
+    padding-bottom:env(safe-area-inset-bottom); animation:rise .26s ease; }
+  @keyframes rise { from { transform:translateY(40px); opacity:.4; } to { transform:none; opacity:1; } }
+  #panel .bar { display:flex; align-items:center; gap:10px; padding:13px 16px; border-bottom:1px solid rgba(255,255,255,.07); }
+  #panel .sun-mini { width:26px; height:26px; border-radius:50%;
+    background:radial-gradient(circle at 38% 35%,#fff3c4,#ffd24d 45%,#ff9e2c 78%); box-shadow:0 0 12px #ffb43a; }
+  #panel .bar b { font-size:16px; } #panel .bar .grow { flex:1; }
+  #panel .bar .ic { width:34px; height:34px; border-radius:50%; border:none; cursor:pointer; color:#cdd6f0;
+    background:rgba(255,255,255,.08); display:grid; place-items:center; font-size:15px; }
+  #log { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:12px; }
+  .row { display:flex; gap:8px; align-items:flex-end; max-width:90%; animation:pop .2s ease; }
+  .row.me { align-self:flex-end; flex-direction:row-reverse; }
+  .ava { width:24px; height:24px; border-radius:50%; flex:none;
+    background:radial-gradient(circle at 38% 35%,#fff3c4,#ffd24d 45%,#ff9e2c 78%); box-shadow:0 0 8px #ffb43a; }
+  .bubble { padding:10px 13px; border-radius:16px; line-height:1.45; font-size:15px; word-wrap:break-word; overflow-wrap:anywhere; }
+  .me .bubble { background:linear-gradient(135deg,#3b82f6,#2563eb); color:#fff; border-bottom-right-radius:5px; }
+  .her .bubble { background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.08); border-bottom-left-radius:5px; }
+  .bubble a { color:#8ec5ff; } .bubble code { background:rgba(255,255,255,.12); padding:1px 5px; border-radius:5px; }
+  .typing .bubble { display:inline-flex; gap:5px; }
+  .dot { width:7px; height:7px; border-radius:50%; background:#8893b5; animation:blink 1.3s infinite; }
+  .dot:nth-child(2){animation-delay:.2s} .dot:nth-child(3){animation-delay:.4s}
+  @keyframes pop { from{opacity:0;transform:translateY(6px)} to{opacity:1} }
+  @keyframes blink { 0%,60%,100%{opacity:.25} 30%{opacity:1} }
+
+  form { display:flex; gap:9px; align-items:flex-end; padding:10px 12px; border-top:1px solid rgba(255,255,255,.07); }
+  #mic { width:50px; height:50px; border-radius:50%; border:none; flex:none; cursor:pointer; color:#fff; font-size:22px;
+    background:linear-gradient(135deg,#ff8a4c,#ff5e7e); box-shadow:0 4px 16px rgba(255,110,90,.5); display:grid; place-items:center;
+    transition:transform .12s; }
+  #mic.listening { animation:micpulse 1s infinite; }
+  @keyframes micpulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,110,90,.55)} 50%{box-shadow:0 0 0 14px rgba(255,110,90,0)} }
+  #input { flex:1; resize:none; border:1px solid rgba(255,255,255,.12); border-radius:20px; padding:11px 15px;
+    font-size:16px; line-height:1.35; max-height:120px; background:rgba(255,255,255,.06); color:#eaf0ff; font-family:inherit; outline:none; }
+  #input:focus { border-color:#ff8a4c; }
+  #send { width:46px; height:46px; border-radius:50%; border:none; flex:none; cursor:pointer; color:#fff; font-size:18px;
+    background:rgba(255,255,255,.1); display:grid; place-items:center; }
+</style>
+</head>
+<body>
+<canvas id="space"></canvas>
+
+<div id="legend">
+  <b>Connections</b>
+  <div class="key"><span class="swatch sw-white"></span> online</div>
+  <div class="key"><span class="swatch sw-blue"></span> in use</div>
+  <div class="key"><span class="swatch sw-red"></span> down</div>
+  <div class="key"><span class="swatch sw-yellow"></span> not added yet</div>
+</div>
+<div id="hint">Tap the sun to talk to Sunny &#9728;</div>
+
+<div id="card">
+  <span class="x" id="cardX">&#10005;</span>
+  <h3 id="cardTitle"></h3>
+  <div class="st" id="cardState"></div>
+  <p id="cardBody"></p>
+</div>
+
+<div id="sheet">
+  <div class="scrim" id="scrim"></div>
+  <div id="panel">
+    <div class="bar">
+      <div class="sun-mini"></div>
+      <b>Sunny</b>
+      <span class="grow"></span>
+      <button class="ic" id="mute" title="Mute voice">&#128266;</button>
+      <button class="ic" id="newchat" title="New chat">&#10227;</button>
+      <button class="ic" id="close" title="Close">&#10005;</button>
+    </div>
+    <div id="log"></div>
+    <form id="form">
+      <button id="mic" type="button" title="Talk">&#127908;</button>
+      <textarea id="input" rows="1" placeholder="Talk, or type…" autocomplete="off"></textarea>
+      <button id="send" type="submit" title="Send">&#10148;</button>
+    </form>
+  </div>
+</div>
+
+<script>
+const TOKEN = "__SUNNY_TOKEN__";
+
+/* ---------- visual config per node ---------- */
+const VIS = {
+  search:   { name:"Web search",     orbit:0.135, size:14, color:"#b9a48c", speed:0.10 },
+  memory:   { name:"Memory",         orbit:0.185, size:17, color:"#e7b96b", speed:0.082 },
+  phone:    { name:"Phone",          orbit:0.245, size:19, color:"#4ea1ff", speed:0.068 },
+  watch:    { name:"Watch",          orbit:0.305, size:15, color:"#e06a4a", speed:0.057 },
+  home:     { name:"Home Assistant", orbit:0.385, size:26, color:"#d8a06a", speed:0.046, bands:true },
+  reminders:{ name:"Reminders",      orbit:0.475, size:23, color:"#e8d59a", speed:0.036, ring:true },
+  web:      { name:"Web app",        orbit:0.555, size:20, color:"#7fe3e0", speed:0.029 },
+  voice:    { name:"Voice",          orbit:0.625, size:20, color:"#5b7bff", speed:0.023 },
+};
+const ABOUT = {
+  search:"Sunny can search the live web to answer current questions.",
+  memory:"Things you ask Sunny to remember, kept across sessions.",
+  phone:"Your phone over ntfy. Text Sunny and get push replies anywhere.",
+  watch:"Amazfit GTR 3 Pro app — not connected yet. We'll build the watch link next.",
+  home:"Home Assistant for real device control. Add HA_URL + HA_TOKEN to connect.",
+  reminders:"Time-based reminders that buzz your phone when due.",
+  web:"This web app — the interface you're using right now.",
+  voice:"Talk to Sunny out loud. Tap the sun, then the mic.",
+};
+
+/* ---------- canvas ---------- */
+const cv = document.getElementById("space");
+const ctx = cv.getContext("2d");
+let W=0, H=0, cx=0, cy=0, R=0, DPR=1;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = W*DPR; cv.height = H*DPR; cv.style.width=W+"px"; cv.style.height=H+"px";
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  cx = W/2; cy = H/2; R = Math.min(W,H)/2;
+}
+window.addEventListener("resize", resize); resize();
+
+const stars = Array.from({length:160}, () => ({
+  x:Math.random(), y:Math.random(), r:Math.random()*1.4+0.3, p:Math.random()*Math.PI*2, s:Math.random()*2+0.5
+}));
+
+let nodes = [];          // [{id, label, state, active, ...vis, angle}]
+const localActive = {};  // id -> epoch ms (client-driven flow, e.g. voice/web while sending)
+let speakingUntil = 0;
+const sunR = () => R*0.085;
+
+function buildNodes(status){
+  const planets = (status.nodes||[]).filter(n => n.id !== "sun" && VIS[n.id]);
+  const N = planets.length;
+  nodes = planets.map((n,i) => {
+    const v = VIS[n.id];
+    return { ...n, ...v, angle: (i/N)*Math.PI*2 + 0.3 };
+  });
+  const sun = (status.nodes||[]).find(n => n.id==="sun");
+  sunState = sun ? sun.state : "online";
+}
+let sunState = "online";
+
+function nodeActive(n){
+  const now = Date.now();
+  return n.active || ((localActive[n.id]||0) > now - 1200);
+}
+
+function lerp(a,b,t){ return a+(b-a)*t; }
+
+function drawConnector(n, t){
+  const px = cx + Math.cos(n.angle)*n.orbit*2*R*0.5;
+  const py = cy + Math.sin(n.angle)*n.orbit*2*R*0.5;
+  n.x = px; n.y = py;
+  const active = nodeActive(n);
+  ctx.save();
+  ctx.lineCap = "round";
+  if (active){
+    ctx.strokeStyle = "rgba(120,180,255,0.22)"; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(cx,cy); ctx.stroke();
+    ctx.shadowColor = "#3aa0ff"; ctx.shadowBlur = 12;
+    for (let k=0;k<7;k++){
+      const f = ((t*0.28 + k/7) % 1);          // flow from planet -> sun
+      const x = lerp(px,cx,f), y = lerp(py,cy,f);
+      ctx.fillStyle = "rgba(170,215,255,0.95)";
+      ctx.beginPath(); ctx.arc(x,y,3,0,7); ctx.fill();
+    }
+  } else if (n.state === "offline"){
+    const a = 0.35 + 0.4*Math.sin(t*4);
+    ctx.strokeStyle = "rgba(255,82,82,"+a+")"; ctx.lineWidth = 2;
+    ctx.shadowColor = "#ff4444"; ctx.shadowBlur = 9;
+    ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(cx,cy); ctx.stroke();
+  } else if (n.state === "absent"){
+    ctx.strokeStyle = "rgba(242,212,77,0.75)"; ctx.lineWidth = 1.8;
+    ctx.setLineDash([5,9]); ctx.lineDashOffset = -t*22;
+    ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(cx,cy); ctx.stroke();
+  } else { // online
+    ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 1.6;
+    ctx.shadowColor = "#ffffff"; ctx.shadowBlur = 7;
+    ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(cx,cy); ctx.stroke();
+    const f = (t*0.15) % 1;                      // gentle shimmer
+    const x = lerp(px,cx,f), y = lerp(py,cy,f);
+    ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.beginPath(); ctx.arc(x,y,1.8,0,7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawPlanet(n){
+  const r = n.size * (R/520) + n.size*0.45;
+  ctx.save();
+  if (n.ring){
+    ctx.strokeStyle = "rgba(232,213,154,0.55)"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(n.x, n.y, r*1.9, r*0.7, -0.5, 0, 7); ctx.stroke();
+  }
+  const g = ctx.createRadialGradient(n.x-r*0.35, n.y-r*0.35, r*0.1, n.x, n.y, r);
+  g.addColorStop(0, "#ffffff"); g.addColorStop(0.25, n.color); g.addColorStop(1, shade(n.color,-0.45));
+  ctx.shadowColor = n.color; ctx.shadowBlur = nodeActive(n)?20:9;
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill();
+  ctx.restore();
+  // label
+  ctx.save();
+  ctx.shadowColor="rgba(0,0,0,.8)"; ctx.shadowBlur=4;
+  ctx.fillStyle = "rgba(220,230,255,0.92)"; ctx.font = "600 12px -apple-system,Segoe UI,sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(n.label, n.x, n.y + r + 15);
+  ctx.restore();
+}
+
+function drawSun(t){
+  const r = sunR();
+  const glow = 1 + 0.06*Math.sin(t*2) + (Date.now()<speakingUntil ? 0.5 : 0);
+  ctx.save();
+  // corona
+  const cg = ctx.createRadialGradient(cx,cy,r*0.4, cx,cy, r*4.2*glow);
+  cg.addColorStop(0, "rgba(255,190,80,0.5)"); cg.addColorStop(0.4, "rgba(255,140,50,0.18)"); cg.addColorStop(1,"rgba(255,120,40,0)");
+  ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(cx,cy,r*4.2*glow,0,7); ctx.fill();
+  // body
+  const g = ctx.createRadialGradient(cx-r*0.3, cy-r*0.3, r*0.15, cx, cy, r);
+  g.addColorStop(0,"#fff6d8"); g.addColorStop(0.4,"#ffd24d"); g.addColorStop(0.8,"#ff9e2c"); g.addColorStop(1,"#ff7a1a");
+  ctx.shadowColor = "#ffb43a"; ctx.shadowBlur = 40*glow;
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.fill();
+  ctx.restore();
+  if (sunState === "offline"){
+    ctx.fillStyle = "rgba(255,90,90,0.9)"; ctx.font="600 13px sans-serif"; ctx.textAlign="center";
+    ctx.fillText("offline", cx, cy + r + 22);
+  }
+}
+
+function shade(hex, p){
+  const c = hex.replace("#",""); const num = parseInt(c,16);
+  let r=(num>>16)&255, g=(num>>8)&255, b=num&255;
+  r=Math.round(r*(1+p)); g=Math.round(g*(1+p)); b=Math.round(b*(1+p));
+  r=Math.max(0,Math.min(255,r)); g=Math.max(0,Math.min(255,g)); b=Math.max(0,Math.min(255,b));
+  return "rgb("+r+","+g+","+b+")";
+}
+
+let t0 = performance.now();
+function frame(now){
+  const t = (now - t0)/1000;
+  ctx.clearRect(0,0,W,H);
+  // background
+  const bg = ctx.createRadialGradient(cx,cy*0.7,0, cx,cy, R*1.6);
+  bg.addColorStop(0,"#0b1024"); bg.addColorStop(1,"#04050b");
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+  // stars
+  for (const s of stars){
+    const a = 0.4 + 0.6*Math.abs(Math.sin(t*s.s + s.p));
+    ctx.fillStyle = "rgba(255,255,255,"+a*0.8+")";
+    ctx.beginPath(); ctx.arc(s.x*W, s.y*H, s.r, 0, 7); ctx.fill();
+  }
+  // faint orbit rings
+  ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 1;
+  for (const n of nodes){ ctx.beginPath(); ctx.arc(cx,cy, n.orbit*2*R*0.5, 0, 7); ctx.stroke(); }
+  // advance orbits + draw connectors (behind), then planets
+  for (const n of nodes){ n.angle += n.speed * 0.0016; drawConnector(n, t); }
+  for (const n of nodes){ drawPlanet(n); }
+  drawSun(t);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- status polling ---------- */
+async function poll(){
+  try {
+    const res = await fetch("/status", { headers:{ "X-Sunny-Token":TOKEN } });
+    if (res.ok) buildNodes(await res.json());
+  } catch(e){}
+}
+poll(); setInterval(poll, 3000);
+
+/* ---------- interaction (tap sun / planets) ---------- */
+function hit(x,y){
+  if (Math.hypot(x-cx,y-cy) < sunR()*1.3) return "sun";
+  for (const n of nodes){ if (n.x!=null && Math.hypot(x-n.x,y-n.y) < (n.size+14)) return n; }
+  return null;
+}
+cv.addEventListener("click", (e) => {
+  const rect = cv.getBoundingClientRect();
+  const h = hit(e.clientX-rect.left, e.clientY-rect.top);
+  if (h === "sun") openSheet();
+  else if (h) showCard(h);
+  else hideCard();
+});
+
+const card = document.getElementById("card");
+function showCard(n){
+  document.getElementById("cardTitle").textContent = n.label;
+  const st = n.state==="online" ? "● online" : n.state==="offline" ? "● down" : "● not connected yet";
+  const col = n.state==="online" ? "#7CFC9B" : n.state==="offline" ? "#ff6b6b" : "#f2d44d";
+  const se = document.getElementById("cardState"); se.textContent = st; se.style.color = col;
+  document.getElementById("cardBody").textContent = ABOUT[n.id] || "";
+  card.style.display = "block";
+}
+function hideCard(){ card.style.display = "none"; }
+document.getElementById("cardX").onclick = hideCard;
+
+/* ---------- chat / voice overlay ---------- */
+const sheet = document.getElementById("sheet");
+const log = document.getElementById("log");
+const form = document.getElementById("form");
+const input = document.getElementById("input");
+const STORE = "sunny_solar_chat";
+let history = []; try { history = JSON.parse(localStorage.getItem(STORE)||"[]"); } catch(e){}
+
+function openSheet(){
+  document.getElementById("hint").style.opacity = 0;
+  sheet.style.display = "block";
+  if (!log.childElementCount){
+    if (history.length) history.forEach(m=>render(m.role,m.text,false));
+    else render("her","Hi, I'm Sunny ☀️ Tap the mic and talk to me, or type.",false);
+  }
+  input.focus();
+}
+function closeSheet(){ sheet.style.display="none"; document.getElementById("hint").style.opacity=1; }
+document.getElementById("scrim").onclick = closeSheet;
+document.getElementById("close").onclick = closeSheet;
+
+function escapeHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function fmt(text){
+  let h = escapeHtml(text); const links=[];
+  h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,(m,a,u)=>{links.push('<a href="'+u+'" target="_blank" rel="noopener">'+a+'</a>');return "\uF8FF"+(links.length-1)+"\uF8FF";});
+  h = h.replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
+  h = h.replace(/`([^`]+)`/g,"<code>$1</code>");
+  h = h.replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>");
+  h = h.replace(/\uF8FF(\d+)\uF8FF/g,(m,i)=>links[+i]);
+  return h.replace(/\n/g,"<br>");
+}
+function render(role,text,save){
+  const row=document.createElement("div"); row.className="row "+(role==="me"?"me":"her");
+  row.innerHTML = (role==="me"?"":'<div class="ava"></div>')+'<div class="bubble">'+fmt(text)+'</div>';
+  log.appendChild(row); log.scrollTop=log.scrollHeight;
+  if (save){ history.push({role,text}); localStorage.setItem(STORE, JSON.stringify(history.slice(-120))); }
+}
+function typing(){ const r=document.createElement("div"); r.className="row her typing";
+  r.innerHTML='<div class="ava"></div><div class="bubble"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
+  log.appendChild(r); log.scrollTop=log.scrollHeight; return r; }
+
+let muted = localStorage.getItem("sunny_muted")==="1";
+document.getElementById("mute").innerHTML = muted ? "&#128263;" : "&#128266;";
+document.getElementById("mute").onclick = ()=>{ muted=!muted; localStorage.setItem("sunny_muted",muted?"1":"0");
+  document.getElementById("mute").innerHTML = muted?"&#128263;":"&#128266;"; if(muted) speechSynthesis.cancel(); };
+
+function speak(text){
+  if (muted || !window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text.replace(/https?:\/\/\S+/g,"link").slice(0,600));
+  u.rate = 1.0; u.pitch = 1.05;
+  u.onstart = ()=>{ speakingUntil = Date.now()+600000; };
+  u.onend = ()=>{ speakingUntil = 0; };
+  speechSynthesis.speak(u);
+}
+
+async function ask(text, viaVoice){
+  render("me", text, true);
+  localActive["web"]=Date.now(); if(viaVoice) localActive["voice"]=Date.now();
+  const tEl = typing();
+  const flow = setInterval(()=>{ localActive["web"]=Date.now(); if(viaVoice) localActive["voice"]=Date.now(); }, 800);
+  try {
+    const res = await fetch("/chat", { method:"POST",
+      headers:{ "Content-Type":"application/json","X-Sunny-Token":TOKEN },
+      body: JSON.stringify({ message:text }) });
+    const data = await res.json(); tEl.remove();
+    const reply = res.ok ? (data.reply||"(no reply)") : ("Error: "+(data.error||res.status));
+    render("her", reply, true);
+    if (res.ok) speak(reply);
+  } catch(e){ tEl.remove(); render("her","Couldn't reach Sunny — is she running? ("+e+")", true); }
+  finally { clearInterval(flow); }
+}
+
+form.addEventListener("submit",(e)=>{ e.preventDefault(); const v=input.value.trim(); if(!v) return;
+  input.value=""; input.style.height="auto"; ask(v,false); });
+input.addEventListener("input",()=>{ input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,120)+"px"; });
+input.addEventListener("keydown",(e)=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); form.requestSubmit(); } });
+
+document.getElementById("newchat").onclick = async ()=>{
+  history=[]; localStorage.removeItem(STORE); log.innerHTML="";
+  try{ await fetch("/reset",{method:"POST",headers:{"X-Sunny-Token":TOKEN}}); }catch(e){}
+  render("her","Fresh start! What's up?", false);
+};
+
+/* ---------- voice input ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const micBtn = document.getElementById("mic");
+let rec=null, listening=false;
+if (SR){
+  rec = new SR(); rec.lang="en-US"; rec.interimResults=false; rec.maxAlternatives=1;
+  rec.onresult = (e)=>{ const txt=e.results[0][0].transcript; if(txt) ask(txt,true); };
+  rec.onend = ()=>{ listening=false; micBtn.classList.remove("listening"); };
+  rec.onerror = ()=>{ listening=false; micBtn.classList.remove("listening"); };
+  micBtn.onclick = ()=>{ if(listening){ rec.stop(); return; }
+    try{ speechSynthesis.cancel(); rec.start(); listening=true; micBtn.classList.add("listening"); localActive["voice"]=Date.now(); }catch(e){} };
+} else {
+  micBtn.title = "Voice not supported in this browser — type instead";
+  micBtn.onclick = ()=> input.focus();
+  micBtn.style.opacity = .5;
+}
+</script>
+</body>
+</html>

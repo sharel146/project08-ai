@@ -106,6 +106,7 @@ def _phone_loop(brain: Brain, config: Config) -> int:
             # ntfy.sh rate-limits with HTTP 429). Each event — a message or a
             # keepalive tick — is also our cue for time-based work.
             for event in brain.notifier.stream_inbound(since=since):
+                brain.phone_online = True  # the string to Earth is live
                 for rem in brain.store.due_reminders(int(time.time())):
                     brain.notifier.push(rem.text, title="Reminder", tags=["alarm_clock"])
                     brain.store.mark_fired(rem.id)
@@ -129,6 +130,7 @@ def _phone_loop(brain: Brain, config: Config) -> int:
                 # Approve/reject replies are consumed by the approval gate, not here.
                 if text.lower().startswith(("approve ", "reject ")):
                     continue
+                brain.mark_active("phone")  # Earth→Sun string flows blue
                 reply = brain.handle(text)
                 brain.notifier.push(reply, title="Sunny")
             time.sleep(1)  # connection closed normally; reconnect promptly
@@ -136,6 +138,7 @@ def _phone_loop(brain: Brain, config: Config) -> int:
             print("\nStopped.")
             return 0
         except Exception as exc:  # transient drop / rate limit — back off, reconnect
+            brain.phone_online = False  # string goes red
             print(f"[serve] connection issue ({exc}); reconnecting in 20s…")
             time.sleep(20)
 

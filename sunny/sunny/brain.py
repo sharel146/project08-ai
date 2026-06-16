@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from datetime import datetime
 
 import anthropic
@@ -197,6 +198,16 @@ class Brain:
         self.messages: list[dict] = []
         # Serialize handle() across threads (web server + phone loop share one brain).
         self._lock = threading.Lock()
+        # Live connectivity, for the solar-system dashboard.
+        self.activity: dict[str, float] = {}  # channel -> last-active epoch
+        self.phone_online: bool = False
+
+    def mark_active(self, channel: str) -> None:
+        """Note that a channel (e.g. 'web', 'phone', 'voice') is in use right now."""
+        self.activity[channel] = time.time()
+
+    def is_active(self, channel: str, window: float = 4.0) -> bool:
+        return (time.time() - self.activity.get(channel, 0.0)) < window
 
     def _system(self) -> str:
         now = datetime.now().astimezone()

@@ -1,4 +1,6 @@
-from sunny.server import INDEX_HTML, process_chat
+from types import SimpleNamespace
+
+from sunny.server import INDEX_HTML, build_status, process_chat
 
 
 def test_index_html_has_token_placeholder_and_chat_call():
@@ -7,15 +9,40 @@ def test_index_html_has_token_placeholder_and_chat_call():
     assert "__SUNNY_TOKEN__" in INDEX_HTML
     assert "/chat" in INDEX_HTML
     assert "X-Sunny-Token" in INDEX_HTML
+    assert "/status" in INDEX_HTML
+    assert 'id="space"' in INDEX_HTML  # the solar-system canvas
+
+
+def test_build_status_reflects_connectivity():
+    brain = SimpleNamespace(phone_online=True, is_active=lambda c, window=4.0: c == "web")
+    config = SimpleNamespace(has_brain=True, has_home_assistant=False)
+    status = build_status(brain, config)
+    by_id = {n["id"]: n for n in status["nodes"]}
+    assert by_id["phone"]["state"] == "online"     # phone bridge connected
+    assert by_id["watch"]["state"] == "absent"     # not built yet -> yellow string
+    assert by_id["home"]["state"] == "absent"      # HA not configured -> yellow
+    assert by_id["web"]["active"] is True          # web channel in use -> blue flow
+    assert by_id["search"]["state"] == "online"
+
+
+def test_build_status_phone_offline_when_down():
+    brain = SimpleNamespace(phone_online=False, is_active=lambda c, window=4.0: False)
+    config = SimpleNamespace(has_brain=True, has_home_assistant=False)
+    by_id = {n["id"]: n for n in build_status(brain, config)["nodes"]}
+    assert by_id["phone"]["state"] == "offline"    # string goes red
 
 
 class FakeBrain:
     def __init__(self):
         self.seen = []
+        self.active = []
 
     def handle(self, text):
         self.seen.append(text)
         return f"echo: {text}"
+
+    def mark_active(self, channel):
+        self.active.append(channel)
 
 
 def test_chat_happy_path():
