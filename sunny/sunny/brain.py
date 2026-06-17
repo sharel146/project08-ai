@@ -275,17 +275,19 @@ class Brain:
     def _run(self, messages: list[dict]) -> str:
         """Run the agentic tool-use loop over `messages` and return the reply."""
         for _ in range(30):  # safety cap on tool-use round trips
-            response = self.client.messages.create(
+            # Stream the call: with a big max_tokens (she can rewrite her own
+            # ~10k-token UI in one proposal) a non-streaming request would trip
+            # the SDK's long-request guard and raise before ever hitting the API.
+            with self.client.messages.stream(
                 model=self.config.model,
-                # Big enough to rewrite a whole source file in one proposal (her
-                # own UI is ~10k tokens) plus room for adaptive thinking.
                 max_tokens=32000,
                 thinking={"type": "adaptive"},
                 output_config={"effort": self.config.effort},
                 system=self._system(),
                 tools=tool_definitions(),
                 messages=messages,
-            )
+            ) as stream:
+                response = stream.get_final_message()
 
             if response.stop_reason == "refusal":
                 reply = "I can't help with that one."

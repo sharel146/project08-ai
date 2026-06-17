@@ -148,7 +148,10 @@ def process_chat(
     if not isinstance(message, str) or not message.strip():
         return 400, {"error": "message required"}
     brain.mark_active("web")
-    reply = brain.handle(message.strip())
+    try:
+        reply = brain.handle(message.strip())
+    except Exception as exc:  # surface the failure in chat, not as a dropped request
+        return 200, {"reply": f"I hit an error working on that: {exc}"}
     return 200, {"reply": reply}
 
 
