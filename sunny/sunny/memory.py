@@ -158,6 +158,14 @@ class Store:
             )
             self._conn.commit()
 
+    def count_memories(self) -> int:
+        with self._lock:
+            return self._conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+
+    def count_events(self) -> int:
+        with self._lock:
+            return self._conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+
     def recent_events(self, limit: int = 20) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(

@@ -61,8 +61,21 @@ def _ha_reachable(config: Config) -> bool:
     return ok
 
 
+def _fmt_uptime(secs: int) -> str:
+    secs = max(0, int(secs))
+    h, rem = divmod(secs, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}h {m}m"
+    if m:
+        return f"{m}m {s}s"
+    return f"{s}s"
+
+
 def build_status(brain: Brain, config: Config) -> dict:
-    """Describe every node (planet) and the state of its string to the sun."""
+    """Describe every node (planet), the state of its link to the sun, and live
+    telemetry — all from real subsystems, nothing faked."""
+    now = time.time()
     brain_state = "online" if config.has_brain else "offline"
     phone_state = "online" if getattr(brain, "phone_online", False) else "offline"
     if config.has_home_assistant:
@@ -70,22 +83,59 @@ def build_status(brain: Brain, config: Config) -> dict:
     else:
         home_state = "absent"
 
-    def n(node_id, label, state, active=False):
-        return {"id": node_id, "label": label, "state": state, "active": active}
+    store = getattr(brain, "store", None)
+    mem_count = store.count_memories() if store else 0
+    pending = store.pending_reminders() if store else []
+    event_count = store.count_events() if store else 0
+    last_events = store.recent_events(12) if store else []
+    # The activity-log node lights when something was logged in the last few seconds.
+    log_active = bool(last_events) and last_events[0]["created_at"] > now - 4
+    briefing_on = bool(getattr(config, "briefing_time", ""))
+
+    def n(node_id, label, state, active=False, info=""):
+        return {"id": node_id, "label": label, "state": state, "active": active, "info": info}
 
     nodes = [
         n("sun", "Sunny", brain_state,
-          active=brain.is_active("web") or brain.is_active("phone") or brain.is_active("voice")),
-        n("search", "Web search", brain_state),
-        n("memory", "Memory", "online"),
-        n("phone", "Phone", phone_state, active=brain.is_active("phone")),
-        n("watch", "Watch", "absent"),
-        n("home", "Home Assistant", home_state),
-        n("reminders", "Reminders", "online"),
+          active=brain.is_active("web") or brain.is_active("phone") or brain.is_active("voice"),
+          info=getattr(config, "model", "")),
+        n("search", "Web search", brain_state, active=brain.is_active("search")),
+        n("memory", "Memory", "online", active=brain.is_active("memory"),
+          info=f"{mem_count} items stored"),
+        n("phone", "Phone", phone_state, active=brain.is_active("phone"),
+          info="connected" if phone_state == "online" else "no bridge"),
+        n("watch", "Watch", "absent", info="not linked yet"),
+        n("home", "Home Assistant", home_state, active=brain.is_active("home"),
+          info="linked" if home_state == "online" else "not configured"),
+        n("reminders", "Reminders", "online", active=brain.is_active("reminders"),
+          info=f"{len(pending)} pending"),
         n("web", "Web app", "online", active=brain.is_active("web")),
         n("voice", "Voice", "online", active=brain.is_active("voice")),
+        # ---- additional real subsystems ----
+        n("host", "Host PC", "online",
+          info=f"up {_fmt_uptime(now - getattr(brain, 'started_at', now))}"),
+        n("upgrade", "Self-upgrade", "online", active=brain.is_active("upgrade"),
+          info="sandboxed + approval-gated"),
+        n("briefing", "Daily briefing", "online" if briefing_on else "absent",
+          active=brain.is_active("briefing"),
+          info=f"at {config.briefing_time}" if briefing_on else "not scheduled"),
+        n("log", "Activity log", "online", active=log_active,
+          info=f"{event_count} events"),
     ]
-    return {"nodes": nodes}
+
+    telemetry = {
+        "model": getattr(config, "model", ""),
+        "memories": mem_count,
+        "reminders": len(pending),
+        "events": event_count,
+        "messages": getattr(brain, "message_count", 0),
+        "uptime": _fmt_uptime(now - getattr(brain, "started_at", now)),
+    }
+    feed = [
+        {"kind": e["kind"], "detail": e["detail"], "ts": e["created_at"]}
+        for e in last_events
+    ]
+    return {"nodes": nodes, "telemetry": telemetry, "feed": feed}
 
 
 def process_chat(

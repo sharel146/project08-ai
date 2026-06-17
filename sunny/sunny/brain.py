@@ -198,9 +198,11 @@ class Brain:
         self.messages: list[dict] = []
         # Serialize handle() across threads (web server + phone loop share one brain).
         self._lock = threading.Lock()
-        # Live connectivity, for the solar-system dashboard.
+        # Live connectivity + telemetry, for the dashboard.
         self.activity: dict[str, float] = {}  # channel -> last-active epoch
         self.phone_online: bool = False
+        self.started_at: float = time.time()
+        self.message_count: int = 0  # real conversation turns handled
 
     def mark_active(self, channel: str) -> None:
         """Note that a channel (e.g. 'web', 'phone', 'voice') is in use right now."""
@@ -235,6 +237,7 @@ class Brain:
         """Process one user message, running tools until Sunny is done, and
         return her final text reply. Updates the ongoing conversation."""
         with self._lock:
+            self.message_count += 1
             self.messages.append({"role": "user", "content": user_text})
             self.store.log_event("user_message", user_text)
             return self._run(self.messages)
@@ -250,6 +253,7 @@ class Brain:
             self.messages.clear()
 
     def compose_briefing(self) -> str:
+        self.mark_active("briefing")  # light the Briefing node when one goes out
         return self.oneshot(
             "Give me a short, friendly morning briefing. Greet me, state today's "
             "date, list any reminders I have today (use list_reminders), and add "
@@ -321,6 +325,8 @@ class Brain:
                 "cancel_reminder": "reminders",
                 "notify_user": "phone",
                 "set_device": "home", "list_devices": "home",
+                "list_my_files": "upgrade", "read_my_file": "upgrade",
+                "propose_self_improvement": "upgrade",
             }.get(name)
             if channel:
                 self.mark_active(channel)

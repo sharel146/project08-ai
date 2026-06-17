@@ -192,24 +192,32 @@ RM.addEventListener && RM.addEventListener("change", e => { REDUCE = e.matches; 
 // Which nodes orbit the core, and how they look. Orbits/sizes are tuned for a
 // readable 3D layout; colour is the planet's body tint.
 const VIS = {
-  search:   { name:"WEB SEARCH",     orbit:0.175, size:15, color:0xa9b6c8, atmo:0x6fa0ff, incl:0.10, tex:{} },
-  memory:   { name:"MEMORY",         orbit:0.250, size:18, color:0xf0c46b, atmo:0xffd27a, incl:-0.16, tex:{caps:true} },
+  search:   { name:"WEB SEARCH",     orbit:0.150, size:15, color:0xa9b6c8, atmo:0x6fa0ff, incl:0.10, tex:{} },
+  memory:   { name:"MEMORY",         orbit:0.210, size:18, color:0xf0c46b, atmo:0xffd27a, incl:-0.16, tex:{caps:true} },
+  log:      { name:"ACTIVITY LOG",   orbit:0.270, size:14, color:0x47e08a, atmo:0x2ad17a, incl:0.30, tex:{} },
   phone:    { name:"PHONE",          orbit:0.330, size:21, color:0x3f9bff, atmo:0x2e6fff, incl:0.20, tex:{} },
-  watch:    { name:"WATCH",          orbit:0.410, size:17, color:0xff5c4d, atmo:0xff6a5a, incl:-0.24, tex:{} },
-  home:     { name:"HOME ASSISTANT", orbit:0.500, size:27, color:0xe0a572, atmo:0xffb066, incl:0.12, tex:{bands:true} },
-  reminders:{ name:"REMINDERS",      orbit:0.585, size:24, color:0xecd99a, atmo:0xffe6a0, incl:-0.10, ring:true, tex:{bands:true} },
-  web:      { name:"WEB APP",        orbit:0.670, size:21, color:0x5fe6e0, atmo:0x33c9c4, incl:0.26, tex:{} },
-  voice:    { name:"VOICE",          orbit:0.745, size:21, color:0x7e8cff, atmo:0x4a5cff, incl:-0.30, tex:{} },
+  voice:    { name:"VOICE",          orbit:0.390, size:19, color:0x7e8cff, atmo:0x4a5cff, incl:-0.28, tex:{} },
+  watch:    { name:"WATCH",          orbit:0.450, size:17, color:0xff5c4d, atmo:0xff6a5a, incl:0.22, tex:{} },
+  upgrade:  { name:"SELF-UPGRADE",   orbit:0.515, size:20, color:0xb46bff, atmo:0x8a3cff, incl:-0.18, tex:{} },
+  home:     { name:"HOME ASSISTANT", orbit:0.585, size:27, color:0xe0a572, atmo:0xffb066, incl:0.12, tex:{bands:true} },
+  reminders:{ name:"REMINDERS",      orbit:0.655, size:24, color:0xecd99a, atmo:0xffe6a0, incl:-0.10, ring:true, tex:{bands:true} },
+  web:      { name:"WEB APP",        orbit:0.720, size:21, color:0x5fe6e0, atmo:0x33c9c4, incl:0.26, tex:{} },
+  briefing: { name:"DAILY BRIEFING", orbit:0.785, size:18, color:0xffb84d, atmo:0xff9e2c, incl:-0.24, tex:{} },
+  host:     { name:"HOST PC",        orbit:0.855, size:23, color:0x9fb4d4, atmo:0x5a7fb0, incl:0.16, tex:{bands:true} },
 };
 const ABOUT = {
   search:"Sunny searches the live web to answer current questions.",
   memory:"Things you ask Sunny to remember, kept across sessions.",
+  log:"Sunny's activity log — every message and tool call she records.",
   phone:"Your phone over ntfy — text Sunny and get push replies anywhere.",
+  voice:"Talk to Sunny out loud. Tap the core, then the mic.",
   watch:"Amazfit GTR 3 Pro app — not linked yet. We build the watch link next.",
+  upgrade:"Sunny's self-improvement engine — sandbox-tested and approval-gated.",
   home:"Home Assistant for real device control. Add HA_URL + HA_TOKEN to link.",
   reminders:"Time-based reminders that buzz your phone when due.",
   web:"This web app — the interface you're using right now.",
-  voice:"Talk to Sunny out loud. Tap the core, then the mic.",
+  briefing:"Her daily morning briefing. Set SUNNY_BRIEFING_TIME to schedule it.",
+  host:"The PC Sunny lives on — her body. Online whenever she's running.",
 };
 
 const localActive = {};        // web/voice lit locally during a chat
