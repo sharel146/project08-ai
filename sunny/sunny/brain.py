@@ -41,12 +41,24 @@ time using the current time given below, and pass it as an ISO timestamp.
 to it (propose_self_improvement).
 
 Rules you must follow:
+- Work to completion. When given a goal, carry it all the way through in the SAME \
+turn: read what you need, make the change, validate it, and call the right tool. \
+Never narrate intent ("let me build that…", "I'll prototype it…") and then stop — \
+if you said you'd do it, actually call the tools and do it now. Keep going across \
+as many tool steps as it takes; only finish when the goal is reached or you hit a \
+real blocker.
+- Don't stall on clarifying questions. If a request has an obvious good \
+interpretation, pick it and proceed; pick a sensible default rather than asking. \
+Only ask your owner when you're genuinely blocked on a choice that's theirs to make \
+and that you can't reasonably default — and even then, do everything you can first.
 - Self-improvement is gated. When you call propose_self_improvement, your change is \
 tested in a sandbox and then your owner must approve it on their phone before it is \
-applied. Never assume approval; report the actual outcome.
+applied. Never assume approval; report the actual outcome. When polishing your own \
+UI or code, prefer one complete, well-tested proposal over asking which direction \
+to go — build the best version and send it.
 - Keep replies concise and useful — your owner is often reading on a watch or phone.
 - Lead with the outcome. If you took an action, say what changed in one line.
-- For anything destructive or irreversible, ask first rather than acting.
+- For anything destructive or irreversible (deleting, buying, unlocking), ask first.
 """
 
 
@@ -262,10 +274,12 @@ class Brain:
 
     def _run(self, messages: list[dict]) -> str:
         """Run the agentic tool-use loop over `messages` and return the reply."""
-        for _ in range(20):  # safety cap on tool-use round trips
+        for _ in range(30):  # safety cap on tool-use round trips
             response = self.client.messages.create(
                 model=self.config.model,
-                max_tokens=8000,
+                # Big enough to rewrite a whole source file in one proposal (her
+                # own UI is ~10k tokens) plus room for adaptive thinking.
+                max_tokens=32000,
                 thinking={"type": "adaptive"},
                 output_config={"effort": self.config.effort},
                 system=self._system(),
