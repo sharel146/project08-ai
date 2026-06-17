@@ -10,10 +10,10 @@ requires-python = ">=3.10"
 dependencies = [
     "anthropic>=0.40.0",
     "requests>=2.31.0",
+    # Runtime, not just dev: the self-improvement loop runs the test suite in a
+    # sandbox before any change is proposed, so pytest must always be present.
+    "pytest>=7.0",
 ]
-
-[project.optional-dependencies]
-dev = ["pytest>=7.0"]
 
 [tool.setuptools.packages.find]
 include = ["sunny*"]

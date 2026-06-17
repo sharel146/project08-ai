@@ -8,6 +8,7 @@ load it (run.sh does this for you) before starting Sunny.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -94,7 +95,11 @@ class Config:
             ),
             db_path=Path(os.environ.get("SUNNY_DB_PATH", str(root / "sunny.db"))),
             repo_root=root,
-            test_command=os.environ.get("SUNNY_TEST_COMMAND", "python -m pytest -q"),
+            # Use the SAME interpreter Sunny runs under, not a bare "python" that
+            # may resolve to a different (venv-less) Python in the test subprocess.
+            test_command=os.environ.get(
+                "SUNNY_TEST_COMMAND", f'"{sys.executable}" -m pytest -q'
+            ),
             approval_timeout_seconds=int(
                 os.environ.get("SUNNY_APPROVAL_TIMEOUT", "300")
             ),

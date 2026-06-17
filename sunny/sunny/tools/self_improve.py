@@ -32,9 +32,12 @@ class ImprovementOutcome:
     detail: str
 
 
-def _run(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess:
+def _run(cmd: list[str] | str, cwd: Path) -> subprocess.CompletedProcess:
+    # A str command runs through the shell (so a quoted interpreter path with
+    # spaces parses correctly); a list runs directly (used for git).
     return subprocess.run(
-        cmd, cwd=str(cwd), capture_output=True, text=True, timeout=600
+        cmd, cwd=str(cwd), shell=isinstance(cmd, str),
+        capture_output=True, text=True, timeout=600,
     )
 
 
@@ -74,7 +77,7 @@ class SelfImprover:
             (worktree / rel_path).parent.mkdir(parents=True, exist_ok=True)
             (worktree / rel_path).write_text(new_content, encoding="utf-8")
 
-            tests = _run(self.test_command.split(), worktree)
+            tests = _run(self.test_command, worktree)
             if tests.returncode != 0:
                 tail = (tests.stdout + tests.stderr).strip()[-1500:]
                 return ImprovementOutcome(False, "tests_failed", tail)
